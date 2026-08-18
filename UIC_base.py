@@ -993,6 +993,8 @@ class UIC_Base:
                 "in/s",
                 "in/s2",
             )
+        elif self._oled_unit == "degree":
+            return pos_mm, spd_mm_s, acc_mm_s2, "°", "°/s", "°/s2"
         return pos_mm, spd_mm_s, acc_mm_s2, "mm", "mm/s", "mm/s2"
 
     def _update_oled(self, force=False):

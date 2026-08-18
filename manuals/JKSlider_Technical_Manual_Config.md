@@ -81,7 +81,7 @@ Later panel apps can add another dict (e.g. `OtherApp = { ... }`) in the same `S
 | `JKS_STORE_MARGIN_MM` | Keep marks inside soft limits |
 | `JKS_POSITIONS_FILE` | Persist filename |
 | `JKS_DSP_EXTRA_ROTATE_MS` | Extra-line rotate |
-| `JKS_DSP_UNIT` | OLED Pos/Spd/Acc: `"mm"` (default) or `"inch"` (`in` / `in/s` / `in/s2`). API stays mm |
+| `JKS_DSP_UNIT` | OLED Pos/Spd/Acc: `"mm"` (default) or `"inch"` (`in` / `in/s` / `in/s2`) or `"degree"` (`°` / `°/s` / `°/s2`). API stays mm |
 | `JKS_BOOT_TEXT` / `JKS_BOOT_SPLASH_MS` | Boot splash |
 | `JKS_BOOT_UNLOCK` | `True` (default): wait for OPTION or STOP before enable/homing; rainbow while locked |
 
