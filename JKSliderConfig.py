@@ -93,7 +93,7 @@ JKS_ACCEL_MAX_MM_S2 = 500.0
 JKS_LONG_PRESS_MS = 1000       # store PosA / PosB / PosC
 JKS_STOP_HALT_MS = 1000        # STOP hold → halt() with EMO deceleration
 JKS_STOP_DISABLE_MS = 2000     # STOP hold → disable driver
-JKS_BTN_DEBOUNCE_MS = 30
+JKS_BTN_DEBOUNCE_MS = 10
 # MOVE release ≤ this → locked cruise; longer hold → stop on release.
 JKS_MOVE_TAP_MS = 333
 

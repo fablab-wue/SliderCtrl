@@ -16,6 +16,7 @@ import MC_config as config
 import B4SliderConfig as b4s
 from MC_client import MC_Client
 from UIC_base import UIC_Base, dbg
+from button_state import ButtonAdapter, allow_move_out_of_soft_limit, resolve_move_semantics
 
 _IDLE = 0
 _CRUISE = 1
@@ -228,9 +229,13 @@ async def main():
     learn_ms = int(b4s.B4S_LEARN_HOLD_MS)
     move_tap_ms = int(b4s.B4S_MOVE_TAP_MS)
 
-    move_l = _Btn(b4s.PIN_BTN_MOVE_L, debounce, long_ms, extra_ms)
-    move_r = _Btn(b4s.PIN_BTN_MOVE_R, debounce, long_ms, extra_ms)
-    btn_option = _Btn(b4s.PIN_BTN_OPTION, debounce, long_ms, extra_ms)
+    move_l_pin = Pin(b4s.PIN_BTN_MOVE_L, Pin.IN, Pin.PULL_UP)
+    move_r_pin = Pin(b4s.PIN_BTN_MOVE_R, Pin.IN, Pin.PULL_UP)
+    option_pin = Pin(b4s.PIN_BTN_OPTION, Pin.IN, Pin.PULL_UP)
+
+    move_l = ButtonAdapter(lambda: move_l_pin.value() == 0, debounce, long_ms, extra_ms)
+    move_r = ButtonAdapter(lambda: move_r_pin.value() == 0, debounce, long_ms, extra_ms)
+    btn_option = ButtonAdapter(lambda: option_pin.value() == 0, debounce, long_ms, extra_ms)
     btn_set = _Btn(b4s.PIN_BTN_SET, debounce, long_ms, extra_ms, learn_ms)
 
     def update_all():
@@ -280,6 +285,9 @@ async def main():
     option_boost = False
     set_tick_sec = 0
     learn_active = False
+    swap_lr = False
+    move_swap_since = None
+    move_swap_fired = False
 
     adc_speed = ADC(Pin(b4s.PIN_POT_SPEED))
     filt_speed = _PotFilter(
@@ -355,16 +363,17 @@ async def main():
         ui.ledFlash(_RED, 2, flash_on, flash_off)
         dbg(3, "B4S all-four reset")
 
-    def start_cruise(direction, locked, boost):
+    def start_cruise(direction, locked, speed_boost=False, accel_boost=False):
         nonlocal mode, cruise_dir, cruise_locked, option_boost
         cruise_dir = direction
         cruise_locked = locked
-        option_boost = boost
+        option_boost = speed_boost
         mode = _CRUISE if locked else _HOLD
         tgt = target_for_dir(direction)
-        spd = speed_max if boost else speed_mm_s
+        spd = speed_max if speed_boost else speed_mm_s
+        acc = accel_max if accel_boost else accel_cmd
         mc.setSpeed(spd)
-        mc.setAcceleration(accel_cmd)
+        mc.setAcceleration(acc)
         mc.enable(True)
         mc.moveTo(tgt)
         sync_loop_led()
@@ -397,6 +406,9 @@ async def main():
 
             opt = btn_option.pressed()
             st = btn_set.pressed()
+            move_sem = resolve_move_semantics(
+                move_l.state, move_r.state, opt, move_tap_ms
+            )
             all_four = (
                 move_l.pressed()
                 and move_r.pressed()
@@ -464,6 +476,26 @@ async def main():
                     dbg(3, "B4S disable")
                 await asyncio.sleep_ms(20)
                 continue
+
+            # --- MOVE_L + MOVE_R ≥ 3 s → swap direction, like FAST pair ----
+            swap_hold_ms = 3000
+            if move_l.pressed() and move_r.pressed() and not opt:
+                now = time.ticks_ms()
+                if move_swap_since is None:
+                    move_swap_since = now
+                    move_swap_fired = False
+                if (
+                    not move_swap_fired
+                    and time.ticks_diff(now, move_swap_since) >= swap_hold_ms
+                ):
+                    move_swap_fired = True
+                    swap_lr = not swap_lr
+                    move_l, move_r = move_r, move_l
+                    ui.ledBlip(_WHITE, blip_ms)
+                    dbg(3, "B4S MOVE_SWAP", swap_lr)
+            else:
+                move_swap_since = None
+                move_swap_fired = False
 
             # --- 4/5) SET + MOVE soft limits ------------------------------
             if st and (move_l.pressed() or move_r.pressed()) and not opt:
@@ -569,7 +601,12 @@ async def main():
             if mode == _CRUISE and cruise_locked and not mc.isMoving():
                 if loop_armed:
                     cruise_dir = -cruise_dir
-                    start_cruise(cruise_dir, True, option_boost or opt)
+                    start_cruise(
+                        cruise_dir,
+                        True,
+                        speed_boost=(option_boost or opt),
+                        accel_boost=False,
+                    )
                 else:
                     soft_stop()
 
@@ -591,23 +628,34 @@ async def main():
                         start_cruise(1, True, opt)
 
             if mode == _IDLE and not moving:
-                for btn, direction in ((move_l, -1), (move_r, 1)):
-                    if btn.edge_release and not st:
-                        held = btn.last_hold_ms
-                        boost = opt
-                        if held <= move_tap_ms:
-                            start_cruise(direction, True, boost)
-                            dbg(3, "B4S cruise lock", direction, "boost", boost)
-                    if btn.long_press and not st:
-                        start_cruise(direction, False, opt)
-                        dbg(3, "B4S cruise hold", direction)
-
-            if mode == _HOLD and cruise_dir != 0:
-                if not mc.isMoving():
-                    pos = mc.getPosition()
-                    tgt = target_for_dir(cruise_dir)
-                    if abs(pos - tgt) > 0.5:
-                        start_cruise(cruise_dir, False, opt or option_boost)
+                if move_sem.short_release_latched and not st:
+                    if allow_move_out_of_soft_limit(
+                        mc.getPosition(), move_sem.direction, soft_l, soft_r
+                    ) or not mc.isAtSoftLimit():
+                        start_cruise(
+                            move_sem.direction,
+                            True,
+                            speed_boost=False,
+                            accel_boost=bool(move_sem.boost),
+                        )
+                        dbg(
+                            3,
+                            "B4S cruise lock",
+                            move_sem.direction,
+                            "boost",
+                            move_sem.boost,
+                        )
+                if move_sem.hold_to_run and not st:
+                    if allow_move_out_of_soft_limit(
+                        mc.getPosition(), move_sem.direction, soft_l, soft_r
+                    ) or not mc.isAtSoftLimit():
+                        start_cruise(
+                            move_sem.direction,
+                            False,
+                            speed_boost=bool(opt),
+                            accel_boost=False,
+                        )
+                        dbg(3, "B4S cruise hold", move_sem.direction)
 
             sync_loop_led()
             await asyncio.sleep_ms(20)

@@ -65,6 +65,7 @@ Cruise, jog, boost, stop, halt.
 | **OPTION** hold while moving | ` * ` hold | Boost to max speed; release → back to SPEED pot |
 | **SET** while moving | ` S ` | Soft-stop |
 | **MOVE_L + MOVE_R** | ` < ` ` > ` | **Halt** (emergency stop); driver disabled until any key |
+| **MOVE_L + MOVE_R** hold ≥ 1 s | ` < ` ` > ` hold ≥ 1 s | Swap left/right |
 | **All four** (L+R+OPTION+SET) | ` < ` ` > ` ` * ` ` S ` | Halt + **reset like power-up** (full soft limits, loop off, accel preset L) |
 
 Tap vs hold uses `B4S_MOVE_TAP_MS` (default **333 ms**). Left is toward decreasing position when `B4S_LEFT_IS_NEGATIVE` is True (default).
@@ -99,11 +100,11 @@ While holding SET for accel, the LED flashes **white once per second** so you ca
 
 **Loop:** arming does **not** start motion. Next MOVE cruise starts; on arrival at a soft end the carriage auto-retargets to the other end until you stop (SET / same MOVE tip / halt / all-four).
 
-## Colour codes
+## Color codes
 
 RGB status LED (shared [`UIC_Base`](../UIC_base.py)). Docs use **percent**; API uses 0…255 — see [API — RGB status LED](../docs/API.md#rgb-status-led-led_r--led_g--led_b--optional-neopixel).
 
-| Colour / pattern | Meaning |
+| Color / pattern | Meaning |
 |------------------|---------|
 | Rainbow | Boot unlock (until OPTION) |
 | Dim white | Idle, enabled, single-run |
@@ -129,6 +130,7 @@ B4Slider
 L/R tap      cruise to soft end
 L/R hold     jog while held
 L+R          HALT
+L+R 1s       swap L/R
 * + L/R      max-speed cruise
 * hold       max speed while moving
 * + S tap    disable; any key enables
@@ -144,6 +146,19 @@ S hold 5s    accel learn pot  [no ACCEL pot]
 *+S+L+R      HALT + reset like power-up
 ```
 
+## Workflow: normal moving
+
+1. **Unlock** with OPTION.
+2. Dial **SPEED** (and ACCEL pot or SET presets L/H if no ACCEL pot).
+3. **Tap** **MOVE_L** / **MOVE_R** for a short burst move: release within ~⅓ s and the slider continues cruising toward that soft end until you stop it, reverse it, or reach the limit.
+4. **Hold** **MOVE_L** / **MOVE_R** longer than ~⅓ s for hold-to-run. The carriage moves while the button is down; release stops it.
+5. **Same-side tap while cruising** stops the cruise; **opposite-side tap** reverses direction. This makes the move buttons behave like a left/right lock-and-stop control rather than a raw jog.
+6. **OPTION before MOVE_L / MOVE_R** changes the start condition: when OPTION is already down before the move starts, the slider launches with **max speed + max accel**.
+7. **OPTION during movement** is a speed boost only: **speed goes to max_speed**, while **accel stays at the current pot/preset value** until OPTION is released.
+8. If you want to keep the current pot accel but make the move faster, hold OPTION after the move is already running. If you want the full startup acceleration burst, press OPTION before the move.
+9. **SET** while moving soft-stops the carriage. **MOVE_L + MOVE_R** is the emergency halt; any button re-enables the driver after a disabled state.
+10. **All four** (MOVE_L + MOVE_R + OPTION + SET) resets the session like power-up and clears the soft-limit / loop state.
+
 ## Workflow: A / B (soft limits)
 
 Use the soft ends as your two shot marks.
@@ -156,15 +171,6 @@ Use the soft ends as your two shot marks.
 6. **Loop (optional)** — idle: **OPTION + SET** hold ≥ 1 s (LED white↔blue). Then MOVE tap; carriage ping-pongs until SET / same tip / L+R.
 7. **Boost** — hold OPTION while moving, or start with OPTION+MOVE, for max speed.
 8. **Reset ends** — SET+MOVE hold ≥ 1 s resets that side to full slider; or all-four for a full session reset.
-
-## Workflow: normal moving
-
-1. **Unlock** with OPTION.
-2. Dial **SPEED** (and ACCEL pot or SET presets L/H if no ACCEL pot).
-3. **Tap** MOVE_L / MOVE_R for locked cruise toward the soft end, or **hold** to jog and release to stop.
-4. While cruising: opposite MOVE to reverse; same MOVE or SET to soft-stop; OPTION to boost.
-5. **L+R** for emergency halt; any button to re-enable after disable/halt.
-6. **All four** if you need halt plus soft limits / loop / accel back to power-up defaults.
 
 ## Config entries
 

@@ -26,6 +26,7 @@ import JKSliderConfig as jks
 import UIC_config as uic_cfg
 from MC_client import MC_Client
 from UIC_base import UIC_Base, dbg
+from button_state import allow_move_out_of_soft_limit, resolve_move_semantics
 
 _IDLE = 0
 _CRUISE = 1
@@ -783,6 +784,8 @@ async def main():
     delay_option_latched = False
     move_swap_since = None
     move_swap_fired = False
+    move_pair_since = None
+    move_pair_fired = False
     swap_option_latched = False
     display_dim = float(getattr(jks, "JKS_DISPLAY_DIM", 0.25))
     if display_dim < 0.01:
@@ -826,6 +829,7 @@ async def main():
     oled_flash_until = 0
     goto_target = None
     loop_target = None
+    goto_boost = False
     pending = None
     pending_due_ms = 0
     driver_on = False
@@ -1413,9 +1417,10 @@ async def main():
 
     def _run_action(action, speed_mm_s, accel_mm_s2):
         nonlocal mode, cruise_dir, cruise_locked, goto_target, loop_pair, loop_target
-        nonlocal loop_toward_p2, loop_dwell_until, driver_on, goto_t0_ms
+        nonlocal loop_toward_p2, loop_dwell_until, driver_on, goto_t0_ms, goto_boost
         _clear_move_pause()
         _msm_clear()
+        goto_boost = False
         kind = action[0]
         if _want_msm() and kind in ("cruise", "goto", "loop"):
             _msm_begin(action, speed_mm_s, accel_mm_s2)
@@ -1834,6 +1839,9 @@ async def main():
             _sync_panel_led(move_btn_down)
 
             option = btn_option.pressed()
+            move_sem = resolve_move_semantics(
+                move_l, move_r, option, move_tap_ms
+            )
 
             # --- T + D + OPTION: toggle MSM ↔ Cont ----------------------
             mode_chord = (
@@ -1993,7 +2001,36 @@ async def main():
                 move_swap_since = None
                 move_swap_fired = False
 
-            # --- FAST_L + FAST_R ≥ 1 s → swap; with OPTION → dim toggle ----
+            # --- MOVE_L + MOVE_R ≥ 3 s → swap direction, like FAST pair ----
+            swap_hold_ms = 3000
+            if move_l.pressed() and move_r.pressed():
+                now = time.ticks_ms()
+                if move_pair_since is None:
+                    move_pair_since = now
+                    move_pair_fired = False
+                if (
+                    not move_pair_fired
+                    and time.ticks_diff(now, move_pair_since) >= swap_hold_ms
+                ):
+                    move_pair_fired = True
+                    swap_lr = not swap_lr
+                    move_l, move_r, fast_l, fast_r = _bind_lr(
+                        btn_move_l,
+                        btn_move_r,
+                        btn_fast_l,
+                        btn_fast_r,
+                        swap_lr,
+                    )
+                    _persist()
+                    _flash_oled(
+                        "Move swap" if swap_lr else "Move swap ok"
+                    )
+                    dbg(3, "MOVE_SWAP", swap_lr)
+            else:
+                move_pair_since = None
+                move_pair_fired = False
+
+            # --- FAST_L + FAST_R ≥ 3 s → swap; with OPTION → dim toggle ----
             if btn_fast_l.pressed() and btn_fast_r.pressed():
                 now = time.ticks_ms()
                 if swap_since is None:
@@ -2004,7 +2041,7 @@ async def main():
                     swap_option_latched = True
                 if (
                     not swap_fired
-                    and time.ticks_diff(now, swap_since) >= long_ms
+                    and time.ticks_diff(now, swap_since) >= swap_hold_ms
                 ):
                     swap_fired = True
                     if swap_option_latched:
@@ -2400,7 +2437,7 @@ async def main():
                 _flash_oled("PosC saved")
                 dbg(3, "Store C", round(pos_c, 2))
 
-            # --- Short press A / B / C → goto (OPTION = max speed/accel) ---
+            # --- Short press A / B / C → goto (OPTION before press = max speed + max accel) ---
             goto_spd = float(mc.max_speed) if option else speed
             goto_acc = float(mc.max_accel) if option else accel
             if btn_a.short_press and not (pb or pc):
@@ -2409,6 +2446,16 @@ async def main():
                 _request_action(("goto", "PosB", pos_b), goto_spd, goto_acc)
             if btn_c.short_press and not (pa or pb):
                 _request_action(("goto", "PosC", pos_c), goto_spd, goto_acc)
+
+            if mode == _GOTO and goto_target is not None:
+                if option and not goto_boost:
+                    goto_boost = True
+                    mc.setSpeed(float(mc.max_speed))
+                    dbg(3, "Goto boost", goto_target)
+                elif (not option) and goto_boost:
+                    goto_boost = False
+                    mc.setSpeed(max(speed, config.MIN_SPEED_MM_S))
+                    dbg(3, "Goto boost end", goto_target)
 
             # --- Optional joystick (OPTION = max speed/accel) --------------
             joy_active = False
@@ -2482,7 +2529,8 @@ async def main():
                         dbg(3, "Cruise", "R" if _mv_dir > 0 else "L")
                     else:
                         cruise_locked = False
-                        _request_action(("cruise", _mv_dir), speed, accel)
+                        move_start_accel = float(mc.max_accel) if option else accel
+                        _request_action(("cruise", _mv_dir), speed, move_start_accel)
 
                 # Release decides locked vs hold-to-run.
                 for _mv_btn, _mv_sign in ((move_l, -1), (move_r, 1)):
@@ -2504,6 +2552,16 @@ async def main():
                         cruise_locked = False
                         dbg(3, "Cruise hold stop", "R" if _mv_sign > 0 else "L")
 
+                if move_sem.short_release_latched and mode == _CRUISE and cruise_dir != 0:
+                    cruise_locked = True
+                    dbg(4, "Cruise latched by shared move semantics", move_sem.direction)
+                if move_sem.long_release_stop and mode == _CRUISE and cruise_dir != 0:
+                    mc.stop()
+                    mode = _IDLE
+                    cruise_dir = 0
+                    cruise_locked = False
+                    dbg(3, "Cruise hold stop via shared semantics", move_sem.direction)
+
                 if mode == _CRUISE and cruise_dir != 0:
                     # FAST matching side, or OPTION held → max cruise boost.
                     cruise_boost = option or (
@@ -2522,14 +2580,13 @@ async def main():
                         )
                     )
                     if cruise_boost:
-                        _apply_motion_params(
-                            float(mc.max_speed), float(mc.max_accel)
-                        )
                         cruise_speed = float(mc.max_speed) / (
                             tl_div if tl_div > 0 else 1
                         )
+                        mc.setSpeed(cruise_speed)
                     else:
                         cruise_speed = eff_speed
+                        mc.setSpeed(cruise_speed)
                     mc.move(_signed(cruise_dir > 0, cruise_speed))
                     if mc.isAtHardLimit():
                         mode = _IDLE
@@ -2537,7 +2594,9 @@ async def main():
                         cruise_locked = False
                         _flash_oled("Hard limit")
                         dbg(1, "Limit hard")
-                    elif mc.isAtSoftLimit():
+                    elif mc.isAtSoftLimit() and not allow_move_out_of_soft_limit(
+                        mc.getPosition(), cruise_dir, soft_min, soft_max
+                    ):
                         mc.stop()
                         mode = _IDLE
                         cruise_dir = 0
@@ -2545,26 +2604,25 @@ async def main():
                         _flash_oled("Soft limit")
                         dbg(2, "Limit soft")
                 elif not both_fast and (fast_l.pressed() or fast_r.pressed()):
+                    fast_speed = float(mc.max_speed)
+                    fast_accel = float(mc.max_accel)
                     _enable(True)
                     driver_on = True
-                    _apply_full_motion_params(
-                        float(mc.max_speed), float(mc.max_accel)
-                    )
-                    jog = float(mc.max_speed)
+                    _apply_full_motion_params(fast_speed, fast_accel)
                     if fast_l.pressed() and not fast_r.pressed():
                         mode = _FAST
                         cruise_dir = 0
                         cruise_locked = False
                         fast_dir = -1
                         goto_target = None
-                        mc.move(_signed(False, jog))
+                        mc.move(_signed(False, fast_speed))
                     elif fast_r.pressed() and not fast_l.pressed():
                         mode = _FAST
                         cruise_dir = 0
                         cruise_locked = False
                         fast_dir = 1
                         goto_target = None
-                        mc.move(_signed(True, jog))
+                        mc.move(_signed(True, fast_speed))
                 elif mode == _FAST:
                     mc.stop()
                     mode = _IDLE

@@ -46,7 +46,7 @@ B4S_USE_ACCEL_POT = 0
 # ---------------------------------------------------------------------------
 # Button timing
 # ---------------------------------------------------------------------------
-B4S_BTN_DEBOUNCE_MS = 30
+B4S_BTN_DEBOUNCE_MS = 10
 B4S_LONG_PRESS_MS = 1000       # >1 s
 B4S_EXTRA_LONG_MS = 3000       # >3 s
 B4S_LEARN_HOLD_MS = 5000       # >5 s accel learn

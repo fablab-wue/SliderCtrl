@@ -52,7 +52,6 @@ Cruise, jog, stop, boost, halt, home, soft travel chords, and mid-move pause.
 | **OPTION + (MOVE_L / MOVE_R)** hold | ` * ` (` < ` / ` > `) hold | Boost to panel **max speed + max accel** while OPTION held |
 | **(FAST_L / FAST_R)** hold | ` << ` / ` >> ` hold | Max speed/accel jog **while held** (no lock) |
 | Matching **FAST** while cruising | ` << ` or ` >> ` hold | Boost to max; release FAST → back to pots |
-| **FAST_L + FAST_R** hold ≥ 1 s | ` << ` ` >> ` hold ≥ 1 s | Swap left/right |
 | **STOP** tap | ` 0 ` tap | Smooth stop (keeps Delay setting) |
 | **STOP** tap while already slowing | ` 0 ` tap | Fast halt |
 | **STOP** hold ≥ 1 s | ` 0 ` hold ≥ 1 s | Fast halt |
@@ -148,6 +147,8 @@ If an MSM hop cannot fit in the interval (accel too slow / TL too aggressive), s
 |--------|-----|--------|
 | **STOP** hold ≥ 2 s | ` 0 ` hold ≥ 2 s | Disable motor driver |
 | **STOP** tap when disabled | ` 0 ` tap | Enable driver |
+| **FAST_L + FAST_R** hold ≥ 1 s | ` << ` ` >> ` hold ≥ 1 s | Swap left/right |
+| **MOVE_L + MOVE_R** hold ≥ 1 s | ` < ` ` > ` hold ≥ 1 s | Swap left/right |
 | **OPTION + MOVE_L + MOVE_R** hold ≥ 1 s | ` * ` ` < ` ` > ` hold ≥ 1 s | Swap left/right for MOVE, FAST, and joystick |
 
 ## Typical Workflows
@@ -155,14 +156,30 @@ If an MSM hop cannot fit in the interval (accel too slow / TL too aggressive), s
 ### Locked cruise (tap MOVE)
 
 1. Dial **SPEED** / **ACCEL** pots.
-2. **Tap** **MOVE_R** and release within ~⅓ s — carriage keeps cruising (locked).
-3. Hold **OPTION** mid-move for max speed/accel; release OPTION to return to pots.
-4. **Tip** **MOVE_R** again to stop (or press **STOP** / opposite MOVE / A/B/C).
+2. **Tap** **MOVE_R** and release within ~⅓ s — carriage starts cruising in that direction and stays locked until you stop it or it hits a limit.
+3. The simple rule is: short tap = start cruise; same side again = stop; opposite side = reverse.
+4. If **OPTION** is already held before you press **MOVE_L** / **MOVE_R**, the move starts at the panel’s **max speed and max accel**.
+5. If **OPTION** is pressed while the move is already running, it acts as a speed boost only: **speed jumps to max_speed**, while **accel stays at the pot/set value** until OPTION is released.
+6. Release OPTION and the move falls back to the current pot values.
+7. **Tip** **MOVE_R** again to stop (or press **STOP** / opposite MOVE / A/B/C).
 
 ### Hold cruise (hold MOVE)
 
-1. **Hold** **MOVE_R** longer than ~⅓ s — carriage moves while the key is down.
-2. **Release** — cruise stops.
+1. **Hold** **MOVE_R** longer than ~⅓ s — carriage continues moving while the key is down.
+2. **Release** — cruise stops smoothly and the movement ends.
+3. This is the “jog while held” mode. It is different from the short tap locked-cruise mode above.
+4. If you keep **OPTION** down while holding **MOVE_L** / **MOVE_R**, the carriage still runs with the pot accel and only the speed is boosted to max_speed; it does not switch to max_accel during the move.
+
+### FAST jog
+
+1. Hold **FAST_L** or **FAST_R** — jogs at panel max speed/accel (no lock).
+2. Release — stops.
+
+### Joystick + OPTION boost
+
+1. Deflect the stick — speed scales from the SPEED pot; ACCEL pot sets acceleration (live while moving).
+2. Hold **OPTION** — full deflection uses **max speed**; **accel stays at the pot value** while the boost is active.
+3. Release **OPTION** — back to pot values.
 
 ### FAST jog
 
@@ -286,9 +303,9 @@ Hard limit (home switch):
 
 ## Status LED (if present)
 
-PWM RGB and optional NeoPixel (WS2812) show the **same** colours. Soft-limit blues are **added** onto the motion/idle base (shared [`UIC_Base`](../UIC_base.py)); Delay / TL / loop panel colours come from the app via `ledPingPong` / `ledAddColor`. See [API — RGB status LED](../docs/API.md#rgb-status-led-led_r--led_g--led_b--optional-neopixel).
+PWM RGB and optional NeoPixel (WS2812) show the **same** colors. Soft-limit blues are **added** onto the motion/idle base (shared [`UIC_Base`](../UIC_base.py)); Delay / TL / loop panel colors come from the app via `ledPingPong` / `ledAddColor`. See [API — RGB status LED](../docs/API.md#rgb-status-led-led_r--led_g--led_b--optional-neopixel).
 
-| Colour | Meaning |
+| Color | Meaning |
 |--------|---------|
 | Rainbow (short) | Power-on |
 | Rainbow (loop) | Boot unlock until OPTION or STOP |
