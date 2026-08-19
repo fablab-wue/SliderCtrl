@@ -2,7 +2,7 @@
 #
 # MC_API surface (duck-typed): start, send/query, motion, config setters,
 # getters, set_status_callback — same names for a future RS485 client.
-# Wire protocol: SliderMC docs/PROTOCOL.md (ASCII @ UART_BAUD on GP16/17).
+# Wire protocol: https://github.com/fablab-wue/SliderDoc/blob/main/contract/protocol.md
 
 try:
     import uasyncio as asyncio

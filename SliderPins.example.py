@@ -129,7 +129,7 @@ JKSlider = {
     # Keypad matrix — used when JKS_INPUT_MODE == "keypad"
     # Rows GP6..GP9 = KP_ROW1..KP_ROW4 (KP_ROW1 = upper keys on GP6).
     # Cols GP10..GP12 = KP_COL1..KP_COL3.
-    # High-Z row scan (no row diodes). See manuals/JKSlider_Technical_Manual_Panel.md.
+    # High-Z row scan (no row diodes). See SliderDoc uic/projects/jkslider/technical/panel.md
     "PIN_KEYPAD_ROWS": (6, 7, 8, 9),
     "PIN_KEYPAD_COLS": (10, 11, 12),
     # Joystick / pot feel

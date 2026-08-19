@@ -1,61 +1,84 @@
-# SliderCtrl / JKSlider
+# SliderCtrl
 
-**Pro-feel motorized camera slider control for the set** — open MicroPython firmware on a **Raspberry Pi Pico** (or compact **RP2040-Zero** for smaller designs), built to shoot, not to demo.
+**Open UI controller firmware for DIY motorized camera sliders** — MicroPython on a **Raspberry Pi Pico** (or compact **RP2040-Zero**), built to shoot, not to demo.
 
-**JKSlider** is the turnkey control panel. **`MC_Client`** + **`UIC_Base`** are the UIC libraries for your own DIY slider projects (UART to SliderMC + OLED/LED/camera).
+## About
 
-> IMPORTANT: Docs and manuals moved to repository **SliderDOC** https://github.com/fablab-wue/SliderDoc
+**SliderCtrl** is the **UI controller (UIC)** side of an open **motorized camera slider** system. It gives operators a **laptop-free panel on set** — analogue knobs, muscle-memory buttons, OLED status, and camera trigger — instead of juggling phone apps mid-take.
+
+You bring the rail, motor, and housing. The **firmware and on-set workflow** aim at behaviour comparable to expensive commercial motorized sliders: live retarget, smooth ramps, marks and loops, timelapse, STOP / EMO, and hard-limit homing. **Mechanics quality depends on your build** — the motion stack and panel UX are designed to keep up.
+
+Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/SliderMC)** (STEP/DIR, planner, limits). Docs and manuals live in **[SliderDoc](https://github.com/fablab-wue/SliderDoc)**.
+
+> Documentation: [SliderDoc](https://github.com/fablab-wue/SliderDoc)
 
 ---
 
 ## Features
 
-**Easy on set. Ready for every take.** Analogue knobs, muscle-memory buttons, soft limits, hard-limit home, STOP / EMO — without a laptop in the shot.
+**DIY project, pro-set manners.** Open MicroPython panel firmware talks to a dedicated motion controller over UART. Control feel, safety interlocks, and motion firmware are meant to stand alongside commercial units — your rail, driver, and enclosure are yours to spec.
 
-- **Feel the move** — SPEED & ACCEL under your fingertips · live retarget · sine-smooth ramps  
-- **Mark · Recall · Loop** — Pos A / B / C that survive power-off · pair loops for interviews & product  
-- **Time your story** — DELAY walk-ins · TIMELAPSE dividers for hyper-smooth long takes  
-- **Stay in command** — tap/hold MOVE cruise · FAST jog · optional joystick · OPTION modifiers · boot unlock  
-- **Eyes-off status** — dual-colour OLED (SSD1306 / SH1106 / SSD1309 selectable) · RGB LED · optional NeoPixel (same colours)  
-- **Maker-friendly** — upcycle rails & linear units · off-the-shelf STEP/DIR steppers or servo drivers (A4988, DRV8825, TMC, …)
+**Easy on set. Ready for every take.**
+
+- **Set-first panel** — no phone required; analogue SPEED / ACCEL; STOP / EMO / soft and hard limits  
+- **Feel the move** — live retarget · sine-smooth ramps · tap/hold MOVE cruise · FAST jog · optional joystick  
+- **Production moves** — Pos A / B / C with power-off recall · pair loops · DELAY walk-ins · TIMELAPSE dividers · pause / resume  
+- **Eyes-off status** — I2C OLED (SSD1306 / SH1106 / SSD1309) · RGB LED · optional NeoPixel (same colours)  
+- **Open stack** — edit `SliderPins.py`, Thonny / REPL workflow · fork the panel or build on `MC_Client` / `UIC_Base` · or use the stack as a **construction kit** for custom rigs  
+- **Split architecture** — OLED, keypad, and pots never steal STEP timing ([SliderMC](https://github.com/fablab-wue/SliderMC) owns motion)  
+- **Maker-friendly** — upcycle rails and linear units · A4988, DRV8825, TMC, and other STEP/DIR drivers  
+
+How this compares to commercial motorized sliders: [architecture/compare.md](https://github.com/fablab-wue/SliderDoc/blob/main/architecture/compare.md).
 
 ---
 
-## One board pair. Every net.
+## UIC panel projects
 
-UIC panel I/O on one Pico (or compact **RP2040-Zero**), motion (STEP/DIR, home, limits, Ext) on SliderMC, linked by UART — see the overview, then the pinouts.
+The stack is a **software and electronics construction kit** — turnkey panel **faces** on the same motion firmware, or your own mix of libs and wiring. Pick the panel that fits your shoot and enclosure, or aim the same parts at a mini-dolly, rotating head, or turntable.
 
-![JKSlider architecture overview](docs/img/architecture_overview.svg)
+| Project | Purpose | When to use | Entry |
+|---------|---------|-------------|--------|
+| **JKSlider** | Full motorized camera slider panel — keypad or discrete buttons, SPEED/ACCEL pots, OLED, marks A/B/C, timelapse, DELAY | Default for interviews, product, B-roll, and any shoot that needs the full feature set | [`JKSlider.py`](JKSlider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/user-manual.md) |
+| **B4Slider** | Minimal 4-button remote — MOVE L/R, SET, OPTION, one SPEED pot, RGB status | Slim handheld, budget builds, or when you do not need OLED, keypad, marks, or timelapse | [`B4Slider.py`](B4Slider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/b4slider/user-manual.md) |
+| *More coming* | Additional UIC apps on the same `MC_Client` / UART protocol | Custom rigs and new panel ideas | [project template](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/_template/README.md) |
+
+Under the hood, all projects share **`MC_Client`** + **`UIC_Base`** — kit libraries for your own feature-rich motorized camera slider UI, mini-dolly, rotating head, turntable, or other STEP/DIR rig.
+
+---
+
+## Architecture
+
+UIC panel I/O on one Pico, motion (STEP/DIR, home, limits) on **SliderMC**, linked by UART.
+
+![JKSlider architecture overview](https://github.com/fablab-wue/SliderDoc/raw/main/assets/img/architecture_overview.svg)
 
 **Why two boards**
 
-- Dedicated motion MCU — OLED, keypad, pots, and WLAN never steal STEP timing (less jitter / stutter)
-- **MicroPython + AsyncIO** on the UIC — easy panel programming; Thonny / REPL DIY workflow
-- More free UIC pins for buttons, pots, LEDs, displays; replaceable face (forks may use other hosts as UART clients)
-- **Handheld wired remote** — UIC in hand, MC by the motor driver and PSU; only a **4-wire** cable (**5 V**, **GND**, **TX**, **RX**)
-- Build and debug panel and axis separately
+- Dedicated motion MCU — display redraws, keypad scans, and optional WLAN never steal STEP timing  
+- **MicroPython + AsyncIO** on the UIC — easy panel iteration; Thonny / REPL DIY workflow  
+- Replaceable panel face — same motion board, different UIC project or fork  
+- **Handheld wired remote** — UIC in hand, MC by the driver and PSU; **4-wire** cable (**5 V**, **GND**, **TX**, **RX**)  
+- Build and debug panel and axis separately  
 
-Trade-off: a second Pico (~€5), a little more wiring and housing. Full philosophy, pros/cons, and component lists: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Trade-off: a second Pico (~€5), a little more wiring. Philosophy and pinouts: [architecture/overview.md](https://github.com/fablab-wue/SliderDoc/blob/main/architecture/overview.md).
 
 | UIC may connect | MC may connect |
 |-----------------|----------------|
-| Buttons, KeyPads, OLED, RGB/NeoPixel, pots, JoySticks, Camera | Motor / STEP·DIR driver, home switch, hard limits, Ext, `DRV_ERROR` |
+| Buttons, keypads, OLED, RGB/NeoPixel, pots, joysticks, camera | Motor / STEP·DIR driver, home switch, hard limits, Ext, `DRV_ERROR` |
 | Optional WLAN, USB debug, UART → MC | USB debug, UART → UIC |
 
-UIC keypad/button wiring on a stock Raspberry Pi Pico — matrix, pots, display, RGB, camera, and UART to SliderMC colour-coded so you can build without hunting the datasheet. A compact **RP2040-Zero** (same GPIO numbers) also works for smaller handheld remotes or rail enclosures.
+![JKSlider UIC Pico pinout — keypad mode](https://github.com/fablab-wue/SliderDoc/raw/main/uic/projects/jkslider/panel-layouts/pico_pinout_keypad.png)
 
-![JKSlider UIC Pico pinout — keypad mode](docs/img/pico_pinout_keypad.png)
-
-SliderMC motion Pico pinout: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [PINS.md](../SliderMC/docs/PINS.md) / [`pico_pinout_mc.png`](../SliderMC/docs/img/pico_pinout_mc.png).
+SliderMC motion pinout: [mc/pins.md](https://github.com/fablab-wue/SliderDoc/blob/main/mc/pins.md) · [pico_pinout_mc.png](https://github.com/fablab-wue/SliderDoc/raw/main/assets/img/pico_pinout_mc.png)
 
 ---
 
 ## Quick start
 
-1. Flash [MicroPython](https://micropython.org/download/RPI_PICO/) onto the **UIC** Pico (or matching UF2 for an **RP2040-Zero**). Flash SliderMC onto the **motion** Pico (or Zero).  
-2. Wire the **crossed UART** (GP16/17 both sides, shared GND) — see [Technical Manual — Link](manuals/JKSlider_Technical_Manual_Link.md#communication-mc--uic).  
-3. Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for your hardware (pins + behaviour). Shipped defaults live in `MC_config.py` / `UIC_config.py` / `JKSliderConfig.py` — see the [Technical Manual](manuals/JKSlider_Technical_Manual.md) ([Config](manuals/JKSlider_Technical_Manual_Config.md), [Panel](manuals/JKSlider_Technical_Manual_Panel.md)).  
-4. Copy `MC_client.py`, `UIC_base.py`, `MC_config.py`, `UIC_config.py`, `JKSlider.py`, `JKSliderConfig.py` (and OLED drivers) to the UIC ([Thonny](https://thonny.org/) or `mpremote`) — [Bring-up](manuals/JKSlider_Technical_Manual_BringUp.md).  
+1. Flash [MicroPython](https://micropython.org/download/RPI_PICO/) onto the **UIC** Pico (or matching UF2 for an **RP2040-Zero**). Flash [SliderMC](https://github.com/fablab-wue/SliderMC) onto the **motion** Pico.  
+2. Wire **crossed UART** (GP16/17 both sides, shared GND) — [link and handshake](https://github.com/fablab-wue/SliderDoc/blob/main/contract/link-and-handshake.md#communication-mc--uic).  
+3. Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** — [config](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/config.md) · [panel](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/panel.md).  
+4. Copy project files to the UIC ([Thonny](https://thonny.org/) or `mpremote`) — [bring-up](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/bring-up.md).  
 5. Run the panel:
 
 ```python
@@ -63,7 +86,7 @@ import JKSlider
 JKSlider.run()
 ```
 
-`await start()` unlocks the MC with `\n` and expects the welcome banner (retry 100 ms, 3 s). If the MC is missing, the UIC prints a timeout on USB/REPL and continues without motion.
+`await start()` unlocks the MC with `\n` and expects the welcome banner (retry 100 ms, 3 s). If the MC is missing, the UIC prints a timeout on USB/REPL and continues without motion.
 
 Or try the motion library alone:
 
@@ -72,18 +95,29 @@ import SimpleExample
 SimpleExample.run()
 ```
 
-Full bring-up (Thonny, wiring, variants, checklist): **[manuals/JKSlider_Technical_Manual.md](manuals/JKSlider_Technical_Manual.md)**  
-MC protocol / commands (sibling clone): **[../SliderMC/docs/PROTOCOL.md](../SliderMC/docs/PROTOCOL.md)**  
-Rails, motors, power, mounting: **[manuals/JKSlider_Hardware_Manual.md](manuals/JKSlider_Hardware_Manual.md)**  
-UIC ↔ SliderMC split: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+**More:** [Technical manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/README.md) · [Protocol](https://github.com/fablab-wue/SliderDoc/blob/main/contract/protocol.md) · [Hardware / mechanics](https://github.com/fablab-wue/SliderDoc/blob/main/build/hardware-manual.md)
 
 ---
 
-## MC_Client + UIC_Base — API for your own DIY projects
+## Documentation (SliderDoc)
 
-Compose a UART motion client (`MC_Client`) with local UI (`UIC_Base`) on the UIC Pico: millimetre API to **SliderMC**, soft & hard limits, EMO, RGB / NeoPixel / OLED. STEP/DIR generation runs on the motion Pico.
+| Topic | Document |
+|-------|----------|
+| Architecture | [architecture/overview.md](https://github.com/fablab-wue/SliderDoc/blob/main/architecture/overview.md) |
+| JKSlider install | [uic/projects/jkslider/technical/](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/README.md) |
+| UIC API | [uic/api/overview.md](https://github.com/fablab-wue/SliderDoc/blob/main/uic/api/overview.md) |
+| Protocol | [contract/protocol.md](https://github.com/fablab-wue/SliderDoc/blob/main/contract/protocol.md) |
+| MC build | [mc/build.md](https://github.com/fablab-wue/SliderDoc/blob/main/mc/build.md) |
 
-Use them when you want a custom UI, scripted moves, or a different panel — JKSlider is just one application on top.
+---
+
+## MC_Client + UIC_Base — build your own panel
+
+Beyond turnkey panels, treat **JKSlider**, **B4Slider**, **`MC_Client`**, and **`UIC_Base`** as kit parts — fork a face, strip features, or wire a new enclosure for a one-off slider, mini-dolly, rotating head, or turntable.
+
+Compose a UART motion client (`MC_Client`) with local UI (`UIC_Base`) on the UIC Pico: millimetre API to **SliderMC**, soft and hard limits, EMO, RGB / NeoPixel / OLED. STEP/DIR generation runs on the motion Pico.
+
+JKSlider and B4Slider are applications on top — use the libraries when you want a custom UI, scripted moves, or the next panel face.
 
 ```python
 import uasyncio as asyncio
@@ -119,33 +153,29 @@ asyncio.run(main())
 | Point-to-point demo | `SimpleExample.py` |
 | Pot → velocity | `JoystickExample.py` |
 | Full camera panel | `JKSlider.py` |
-| Full API reference | [docs/API.md](docs/API.md) |
+| Minimal 4-button panel | `B4Slider.py` |
+| API reference | [uic/api/overview.md](https://github.com/fablab-wue/SliderDoc/blob/main/uic/api/overview.md) |
 
-For your hardware, copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only**.
+Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for your hardware.
 
 ---
 
-## Requirements - Base for all SLiders
+## Hardware requirements
 
-- Raspberry Pi Pico (RP2040) or Pico W or RP2040-Zero
+**Base (all sliders)**
+
+- Raspberry Pi Pico (RP2040), Pico W, or RP2040-Zero  
 - MicroPython with `rp2.PIO` and `uasyncio`  
-- External STEP/DIR motor driver
-- Slider mechanics — see Hardware Manual
+- External STEP/DIR motor driver + [SliderMC](https://github.com/fablab-wue/SliderMC) motion board  
+- Motorized camera slider mechanics — [hardware manual](https://github.com/fablab-wue/SliderDoc/blob/main/build/hardware-manual.md)
 
-## Requirements - JKSlider
+**JKSlider**
 
-- Buttons or 3x4 keypad
-- Potentiometers for SPEED and ACCEL
-- RGB LED
-- OLED display
-- (Optional) joystick
+- Buttons or 3×4 keypad · pots for SPEED and ACCEL · RGB LED · OLED · (optional) joystick
 
-## Requirements - B4Slider
+**B4Slider**
 
-- 4 Buttons
-- RGB LED
-- Potentiometer for SPEED
-- (Optional) Potentiometer for ACCEL
+- 4 buttons · RGB LED · SPEED pot · (optional) ACCEL pot · no OLED required
 
 ---
 

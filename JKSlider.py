@@ -10,7 +10,7 @@
 #     BTN_STOP=GP5, MOVE=6/7, FAST=8/9, A/B/C=10/11/12, OPTION=13, DELAY=14, TL=15
 #   JKS_INPUT_MODE = "keypad": KP_ROW1..4=GP6-9, KP_COL1..3=GP10-12 (High-Z row scan);
 #     discrete BTN_STOP on GP5 and BTN_OPTION on GP13 (ORed with matrix).
-#     See manuals/JKSlider_Technical_Manual_Panel.md.
+#     See https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/panel.md
 #
 # Usage:
 #   import JKSlider

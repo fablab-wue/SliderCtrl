@@ -5,7 +5,7 @@ QD: bounce-immune A/B edge decoder (other channel ignored while waiting).
 Denoiser: independent per-pin cleaner (N agreeing samples, N pulled once);
 the app HW-couples Denoiser outs to QD inputs — classes are not linked in code.
 
-See docs/QD.md for full timing graphs, rate limits, and wiring.
+# See https://github.com/fablab-wue/SliderDoc/blob/main/uic/libraries/qd.md
 
 written by Jochen Krapf (jk@nerd2nerd.org)
 
