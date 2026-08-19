@@ -1,10 +1,10 @@
 # SliderCtrl / JKSlider
 
-![JKSlider](docs/img/jkslider-hero.png)
-
 **Pro-feel motorized camera slider control for the set** — open MicroPython firmware on a **Raspberry Pi Pico** (or compact **RP2040-Zero** for smaller designs), built to shoot, not to demo.
 
 **JKSlider** is the turnkey control panel. **`MC_Client`** + **`UIC_Base`** are the UIC libraries for your own DIY slider projects (UART to SliderMC + OLED/LED/camera).
+
+> IMPORTANT: Docs and manuals moved to repository **SliderDOC** https://github.com/fablab-wue/SliderDoc
 
 ---
 
@@ -18,8 +18,6 @@
 - **Stay in command** — tap/hold MOVE cruise · FAST jog · optional joystick · OPTION modifiers · boot unlock  
 - **Eyes-off status** — dual-colour OLED (SSD1306 / SH1106 / SSD1309 selectable) · RGB LED · optional NeoPixel (same colours)  
 - **Maker-friendly** — upcycle rails & linear units · off-the-shelf STEP/DIR steppers or servo drivers (A4988, DRV8825, TMC, …)
-
-Marketing one-pager: [manuals/JKSlider_Mrk.md](manuals/JKSlider_Mrk.md) · Set cheat sheet (A4): [manuals/JKSlider_Cheat_Sheet.pdf](manuals/JKSlider_Cheat_Sheet.pdf)
 
 ---
 
@@ -95,17 +93,19 @@ from UIC_base import UIC_Base
 async def main():
     mc = MC_Client()
     ui = UIC_Base()
+
     mc.set_status_callback(ui.on_status)
     await mc.start()
     await ui.start()
+
+    mc.enable(True)
     mc.setSpeed(40)
     mc.setAcceleration(150)
-    mc.enable(True)
     mc.home()
     await mc.wait()
     mc.moveTo(100)
     await mc.wait()
-    mc.move(-25)          # velocity mode (mm/s)
+    mc.move(-25)
     await asyncio.sleep(2)
     mc.stop()
     await mc.wait()
@@ -125,42 +125,27 @@ For your hardware, copy `SliderPins.example.py` → `SliderPins.py` and edit **t
 
 ---
 
-## Documentation
+## Requirements - Base for all SLiders
 
-| Document | Contents |
-|----------|----------|
-| [manuals/JKSlider_Manual.md](manuals/JKSlider_Manual.md) | Index of all manuals |
-| [manuals/JKSlider_User_Manual.md](manuals/JKSlider_User_Manual.md) | Operator — knobs, buttons, OLED / LED on a ready panel |
-| [manuals/JKSlider_Technical_Manual.md](manuals/JKSlider_Technical_Manual.md) | Installer hub — links to Link / Bring-up / Panel / Motion / Config |
-| [manuals/JKSlider_Hardware_Manual.md](manuals/JKSlider_Hardware_Manual.md) | Builder — rails, drive, motors, mounting, power, housings |
-| [manuals/JKSlider_Components.md](manuals/JKSlider_Components.md) | DIY — tested modules, pinouts, schematics, config deltas |
-| [manuals/JKSlider_Compare.md](manuals/JKSlider_Compare.md) | Competitive scan |
-| [manuals/JKSlider_Mrk.md](manuals/JKSlider_Mrk.md) | Short marketing overview |
-| [manuals/glossary.md](manuals/glossary.md) | Acronyms and panel control names |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | UIC ↔ SliderMC architecture |
-| [docs/API.md](docs/API.md) | `MC_Client` / `UIC_Base` library API |
-| [docs/img/jkslider-hero.png](docs/img/jkslider-hero.png) | Marketing hero image |
-| [docs/img/pico_pinout_button.png](docs/img/pico_pinout_button.png) · [keypad](docs/img/pico_pinout_keypad.png) | Pico pinout diagrams |
-| [docs/img/keypad_map.png](docs/img/keypad_map.png) | Recommended keypad silk labels |
-| [docs/img/discrete_button_layout.png](docs/img/discrete_button_layout.png) | Recommended discrete button / pot layout |
-| [docs/img/rocker_switch_layout.png](docs/img/rocker_switch_layout.png) | Recommended rocker-switch panel layout |
-| [docs/img/oled/](docs/img/oled/) | OLED screen mockups |
-
-GPIO maps, keypad wiring, LED / NeoPixel schematics, and `JKS_*` options are all in the **Technical Manual** — not duplicated here.
-
----
-
-## Requirements
-
-- Raspberry Pi Pico (RP2040) or Pico W  
+- Raspberry Pi Pico (RP2040) or Pico W or RP2040-Zero
 - MicroPython with `rp2.PIO` and `uasyncio`  
-- External STEP/DIR motor driver (and mechanics — see Hardware Manual)
-- Buttons or 3x4 keypad
-- Potentiometers (pots)
+- External STEP/DIR motor driver
+- Slider mechanics — see Hardware Manual
 
-Optional:
+## Requirements - JKSlider
+
+- Buttons or 3x4 keypad
+- Potentiometers for SPEED and ACCEL
 - RGB LED
 - OLED display
+- (Optional) joystick
+
+## Requirements - B4Slider
+
+- 4 Buttons
+- RGB LED
+- Potentiometer for SPEED
+- (Optional) Potentiometer for ACCEL
 
 ---
 
