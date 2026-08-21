@@ -1,7 +1,9 @@
 # MC_client — UART client for SliderMC (MicroPython + uasyncio).
 #
-# MC_API surface (duck-typed): start, send/query, motion, config setters,
-# getters, set_status_callback — same names for a future RS485 client.
+# MC_API surface (duck-typed): start, send/query (optional arg2), motion
+# (optional 2nd-axis pos2 / home(axis)), config setters, getters
+# (axis_count, getPosition2, …), set_status_callback (1-axis) and
+# set_status2_callback (2-axis) — same names for a future RS485 client.
 # Wire protocol: https://github.com/fablab-wue/SliderDoc/blob/main/contract/protocol.md
 
 try:
@@ -35,7 +37,7 @@ class MC_Client:
     MC_STATE_ERROR = 7
     MC_STATE_LOCKED = 8
     # Index = McState; '?' = LOCKED (not emitted on UART status).
-    MC_STATE_CHARS = ("D", "I", "A", "M", "B", "H", "L", "E", "?")
+    MC_STATE_CHARS = ("D", "I", "A", "M", "B", "H", "L", "E", "P", "?")
 
     def __init__(self, uart_id=0, tx=None, rx=None, baud=None):
         if UART is None:
@@ -67,6 +69,7 @@ class MC_Client:
 
         # Assignable callbacks (composition; no subclass required).
         self._status_cb = None
+        self._status_cb2 = None
         self._error_cb = None
         self._answer_cb = None
 
@@ -78,10 +81,14 @@ class MC_Client:
         self._soft_max = None
         self._enabled = None
 
+        self._axis = 1  # 1 or 2 from CG axis2_use; default 1 until fetchConfig
         self._state = None  # I/M/H/L/E/D/...
         self._pos_mm = None
+        self._pos_mm_2 = None
         self._act_speed_mm_s = None
+        self._act_speed_mm_s_2 = None
         self._target_mm = None
+        self._target_mm_2 = None
 
         self._moving = False
         self._homing = False
@@ -100,16 +107,39 @@ class MC_Client:
         self.max_accel = None
         self.slider_min = None
         self.slider_max = None
+        self.slider_min_2 = None
+        self.slider_max_2 = None
+        self.unit_name = None
         # Public McState int; LOCKED until first verbose status.
         self.status = self.MC_STATE_LOCKED
 
         self._motion_task = None
 
+    @property
+    def axis_count(self):
+        """Active axis count from CG ``axis2_use`` (1 or 2)."""
+        return self._axis
+
+    def getAxisCount(self):
+        return self._axis
+
     # --- callbacks ---------------------------------------------------------
 
     def set_status_callback(self, cb):
-        """Register cb(state, pos, speed, accel, target) for verbose `#…` lines."""
+        """Register 1-axis verbose `#…` callback.
+
+        ``cb(state, pos, speed, accel, target)`` — axis 1 only. ``None`` unregisters.
+        Independent of ``set_status2_callback``.
+        """
         self._status_cb = cb
+
+    def set_status2_callback(self, cb):
+        """Register 2-axis verbose `#…` callback.
+
+        ``cb(state, pos, pos2, speed, speed2, accel, accel2, target, target2)``.
+        ``None`` unregisters. Independent of ``set_status_callback``.
+        """
+        self._status_cb2 = cb
 
     def set_error_callback(self, cb):
         """Register cb(code, text) for `!E:` lines."""
@@ -126,10 +156,18 @@ class MC_Client:
             cb(code, text)
 
     def on_status(self, state, pos, speed, accel, target):
-        """Hook / callback dispatch for compact `#…` status."""
+        """Hook / callback dispatch for compact `#…` status (axis 1)."""
         cb = self._status_cb
         if cb is not None:
             cb(state, pos, speed, accel, target)
+
+    def on_status2(
+        self, state, pos, pos2, speed, speed2, accel, accel2, target, target2
+    ):
+        """Hook / callback dispatch for compact `#…` status (both axes)."""
+        cb = self._status_cb2
+        if cb is not None:
+            cb(state, pos, pos2, speed, speed2, accel, accel2, target, target2)
 
     def on_answer(self, command, answer):
         """Hook / callback dispatch for `TAG:value` replies."""
@@ -196,6 +234,12 @@ class MC_Client:
             self._cg_collect = None
 
         self.mc_config = dict(collected)
+        use = collected.get("axis2_use")
+        self._axis = 2 if (use is not None and str(use).strip() == "1") else 1
+        un = collected.get("unit_name")
+        if un is not None:
+            un = str(un).strip()
+        self.unit_name = un if un else None
         self.max_speed = _parse_cfg_float(collected.get("max_speed"))
         self.max_accel = _parse_cfg_float(collected.get("max_accel"))
         self.slider_min = _parse_cfg_limit(
@@ -203,6 +247,12 @@ class MC_Client:
         )
         self.slider_max = _parse_cfg_limit(
             collected.get("slider_max", collected.get("soft_max"))
+        )
+        self.slider_min_2 = _parse_cfg_limit(
+            collected.get("slider_min_2", collected.get("soft_min_2"))
+        )
+        self.slider_max_2 = _parse_cfg_limit(
+            collected.get("slider_max_2", collected.get("soft_max_2"))
         )
         self._soft_min = self.slider_min
         self._soft_max = self.slider_max
@@ -232,28 +282,36 @@ class MC_Client:
             except asyncio.CancelledError:
                 pass
 
-    def _cmd(self, command, arg=None):
+    def _build_line(self, command, arg=None, arg2=None):
+        """Build one MC command line (skip: 2-axis ``arg is None`` + ``arg2`` → ``_``)."""
+        cmd = str(command).strip()
+        if self._axis < 2:
+            arg2 = None
+        if arg is None and arg2 is None:
+            return cmd
+        if arg2 is None:
+            return "%s %s" % (cmd, _fmt_slot(arg))
+        return "%s %s %s" % (cmd, _fmt_slot(arg), _fmt_slot(arg2))
+
+    def _cmd(self, command, arg=None, arg2=None):
         """Fire-and-forget MC line (sync; preserves UART order)."""
-        if arg is None:
-            self._write_line(command)
-        else:
-            self._write_line("%s %s" % (command, arg))
+        self._write_line(self._build_line(command, arg, arg2))
 
     # --- raw send ----------------------------------------------------------
 
-    async def send(self, command, arg=None, wait_answer=False, timeout_s=1.0):
+    async def send(self, command, arg=None, arg2=None, wait_answer=False, timeout_s=1.0):
         """Send one MC command.
 
-        Builds `COMMAND` or `COMMAND arg`. If wait_answer, awaits matching
-        `TAG:payload` and returns the payload string; else returns None.
+        Builds `COMMAND`, `COMMAND arg`, or `COMMAND arg arg2`.
+        2-axis: ``arg is None`` with ``arg2`` set sends MC skip ``_`` for axis 1.
+        1-axis: ``arg2`` is ignored; ``arg is None`` is a bare command.
+        If wait_answer, awaits matching `TAG:payload` and returns the payload
+        string (spaces kept, e.g. ``IP:100 20`` → ``100 20``); else None.
         """
         cmd = str(command).strip()
         if not cmd:
             raise ValueError("empty command")
-        if arg is None:
-            line = cmd
-        else:
-            line = "%s %s" % (cmd, arg)
+        line = self._build_line(cmd, arg, arg2)
         tag = cmd.split(None, 1)[0].upper()
 
         waiter = None
@@ -308,6 +366,14 @@ class MC_Client:
             self._waiters.pop(tag, None)
         box[0] = answer
         ev.set()
+
+    def _seed_ip_answer(self, answer):
+        nums = _split_nums(answer)
+        if not nums:
+            return
+        self._pos_mm = nums[0]
+        if len(nums) > 1:
+            self._pos_mm_2 = nums[1]
 
     # --- RX ----------------------------------------------------------------
 
@@ -368,6 +434,8 @@ class MC_Client:
             if tag and (" " not in tag) and tag[0].isalpha():
                 answer = line[colon + 1 :]
                 cmd = tag.upper()
+                if cmd == "IP":
+                    self._seed_ip_answer(answer)
                 if cmd == "CG" and self._cg_collect is not None:
                     key, sep, val = answer.partition("=")
                     if sep:
@@ -385,7 +453,10 @@ class MC_Client:
                 return
 
     def _handle_status(self, line):
-        # #<state> <pos> [<speed> <accel> [<target>]]
+        # 1-axis: #<state> <pos> [<speed> <accel> [<target>]]
+        # 2-axis idle: #<state> <pos> <pos2>
+        # 2-axis homing: #H <pos> <pos2> <spd> <spd2> <acc> <acc2>
+        # 2-axis moving: #<state> <pos> <pos2> <spd> <spd2> <acc> <acc2> <tgt> <tgt2>
         body = line[1:].strip()
         if not body:
             return
@@ -393,12 +464,27 @@ class MC_Client:
         state = parts[0]
         if len(state) != 1:
             return
-        pos = _parse_float(parts[1]) if len(parts) > 1 else None
-        speed = _parse_float(parts[2]) if len(parts) > 2 else None
-        accel = _parse_float(parts[3]) if len(parts) > 3 else None
-        target = None
-        if len(parts) > 4:
-            target = _parse_float(parts[4])
+
+        dual = self._axis >= 2
+        pos = pos2 = speed = speed2 = accel = accel2 = target = target2 = None
+        n = len(parts)
+        if dual:
+            pos = _parse_float(parts[1]) if n > 1 else None
+            pos2 = _parse_float(parts[2]) if n > 2 else None
+            if n >= 7:
+                speed = _parse_float(parts[3])
+                speed2 = _parse_float(parts[4])
+                accel = _parse_float(parts[5])
+                accel2 = _parse_float(parts[6])
+            if n >= 9:
+                target = _parse_float(parts[7])
+                target2 = _parse_float(parts[8])
+        else:
+            pos = _parse_float(parts[1]) if n > 1 else None
+            speed = _parse_float(parts[2]) if n > 2 else None
+            accel = _parse_float(parts[3]) if n > 3 else None
+            if n > 4:
+                target = _parse_float(parts[4])
 
         try:
             self.status = self.MC_STATE_CHARS.index(state)
@@ -406,33 +492,50 @@ class MC_Client:
             pass
 
         self._state = state
-        self._moving = state in ("M", "A", "B", "H")
+        self._moving = state in ("M", "A", "B", "H", "P")
         self._homing = state == "H"
         self._at_hard_limit = state == "L"
         self._drv_error_active = state == "E"
         if state == "D":
             self._enabled = False
-        elif state in ("I", "M", "H", "A", "B"):
+        elif state in ("I", "M", "H", "A", "B", "P"):
             if self._enabled is None:
                 self._enabled = True
 
         if pos is not None:
             self._pos_mm = pos
+        if pos2 is not None:
+            self._pos_mm_2 = pos2
         if speed is not None:
             self._act_speed_mm_s = speed
             self._act_vel_mm_s = float(speed)
         elif state in ("I", "D", "L", "E"):
             self._act_speed_mm_s = 0.0
             self._act_vel_mm_s = 0.0
-        if len(parts) > 4:
-            self._target_mm = target
-        elif state not in ("M", "H", "A", "B"):
-            self._target_mm = None
+        if speed2 is not None:
+            self._act_speed_mm_s_2 = speed2
+        elif dual and state in ("I", "D", "L", "E"):
+            self._act_speed_mm_s_2 = 0.0
 
-        if accel is None and state in ("I", "D", "L", "E"):
-            accel = 0.0
-        if accel is None:
-            accel = self._accel_mm_s2
+        if dual:
+            if n >= 9:
+                self._target_mm = target
+                self._target_mm_2 = target2
+            elif state not in ("M", "H", "A", "B", "P"):
+                self._target_mm = None
+                self._target_mm_2 = None
+        else:
+            if n > 4:
+                self._target_mm = target
+            elif state not in ("M", "H", "A", "B", "P"):
+                self._target_mm = None
+
+        accel1 = accel
+        if not dual:
+            if accel1 is None and state in ("I", "D", "L", "E"):
+                accel1 = 0.0
+            if accel1 is None:
+                accel1 = self._accel_mm_s2
 
         if state == "A":
             self._accelerating = True
@@ -452,7 +555,7 @@ class MC_Client:
                 self._accelerating = False
             self._prev_act_speed_abs = spd_abs
 
-        if state in ("A", "B", "M", "H"):
+        if state in ("A", "B", "M", "H", "P"):
             spd_abs = abs(self._act_vel_mm_s) if self._act_vel_mm_s is not None else 0.0
             self._prev_act_speed_abs = spd_abs
 
@@ -460,7 +563,23 @@ class MC_Client:
 
         try:
             self.on_status(
-                state, self._pos_mm, self._act_speed_mm_s, accel, self._target_mm
+                state, self._pos_mm, self._act_speed_mm_s, accel1, self._target_mm
+            )
+        except Exception:
+            pass
+        if not dual:
+            pos2 = speed2 = accel2 = target2 = None
+        try:
+            self.on_status2(
+                state,
+                self._pos_mm,
+                pos2,
+                speed,
+                speed2,
+                accel,
+                accel2,
+                target,
+                target2,
             )
         except Exception:
             pass
@@ -559,14 +678,23 @@ class MC_Client:
     def getPosition(self):
         return self._pos_mm if self._pos_mm is not None else 0.0
 
+    def getPosition2(self):
+        return self._pos_mm_2 if self._pos_mm_2 is not None else 0.0
+
     def getSpeed(self):
         return self._act_vel_mm_s if self._act_vel_mm_s is not None else 0.0
+
+    def getSpeed2(self):
+        return self._act_speed_mm_s_2 if self._act_speed_mm_s_2 is not None else 0.0
 
     def getAcceleration(self):
         return self._accel_mm_s2
 
     def getTarget(self):
         return self._target_mm
+
+    def getTarget2(self):
+        return self._target_mm_2
 
     def isMoving(self):
         return self._moving
@@ -594,19 +722,24 @@ class MC_Client:
     def setPosition(self, position_mm):
         raise NotImplementedError("setPosition not supported by SliderMC protocol")
 
-    async def query(self, command, arg=None, timeout_s=1.0):
-        """Send a get/is/config command and return the answer payload."""
-        return await self.send(command, arg, wait_answer=True, timeout_s=timeout_s)
+    async def query(self, command, arg=None, arg2=None, timeout_s=1.0):
+        """Send a get/is/config command and return the answer payload string."""
+        return await self.send(
+            command, arg, arg2, wait_answer=True, timeout_s=timeout_s
+        )
 
     # --- motion API (sync) -------------------------------------------------
 
-    def moveTo(self, position):
-        self._cmd("MT", _fmt_arg(float(position)))
+    def moveTo(self, position, position2=None):
+        """Absolute move. 2-axis: ``moveTo(None, pos2)`` → ``MT _ pos2``."""
+        self._cmd("MT", position, position2)
 
-    def moveBy(self, dist):
-        self._cmd("M", _fmt_arg(float(dist)))
+    def moveBy(self, dist, dist2=None):
+        """Relative move. 2-axis: ``moveBy(None, d2)`` → ``M _ d2``."""
+        self._cmd("M", dist, dist2)
 
     def move(self, speed):
+        # No jog mask: ML/MR with no arg jogs all active axes (both when axis2 on).
         speed = float(speed)
         if abs(speed) < 1e-9:
             self._cmd("MS")
@@ -618,12 +751,22 @@ class MC_Client:
         else:
             self._cmd("ML")
 
-    def home(self):
-        self._motion_task = asyncio.create_task(self._home_coro())
+    def home(self, axis=None):
+        """Homing. ``axis`` None → ``MH`` (MC defaults to 1); ``1``/``2`` → ``MH n``.
+
+        Axis 2 is a no-op when ``axis_count`` is 1.
+        """
+        self._motion_task = asyncio.create_task(self._home_coro(axis))
         return self._motion_task
 
-    async def _home_coro(self):
-        self._cmd("MH")
+    async def _home_coro(self, axis=None):
+        if axis is not None:
+            axis = int(axis)
+            if axis == 2 and self._axis < 2:
+                return
+            self._cmd("MH", axis)
+        else:
+            self._cmd("MH")
         for _ in range(40):
             if self._state == "H":
                 break
@@ -674,6 +817,18 @@ def _parse_cfg_limit(s):
     return _parse_cfg_float(s)
 
 
+def _split_nums(s):
+    """Split a query payload into floats (``'100 20'`` → ``[100.0, 20.0]``)."""
+    out = []
+    if s is None:
+        return out
+    for part in str(s).split():
+        v = _parse_float(part)
+        if v is not None:
+            out.append(v)
+    return out
+
+
 def _fmt_arg(v):
     if isinstance(v, int) or (isinstance(v, float) and v == int(v)):
         return str(int(v))
@@ -681,3 +836,12 @@ def _fmt_arg(v):
     if "." in s:
         s = s.rstrip("0").rstrip(".")
     return s
+
+
+def _fmt_slot(v):
+    """Format one MC arg; ``None`` → skip token ``_``."""
+    if v is None:
+        return "_"
+    if isinstance(v, str):
+        return v
+    return _fmt_arg(v)

@@ -8,7 +8,7 @@
 
 You bring the rail, motor, and housing. The **firmware and on-set workflow** aim at behaviour comparable to expensive commercial motorized sliders: live retarget, smooth ramps, marks and loops, timelapse, STOP / EMO, and hard-limit homing. **Mechanics quality depends on your build** — the motion stack and panel UX are designed to keep up.
 
-Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/SliderMC)** (STEP/DIR, planner, limits). Docs and manuals live in **[SliderDoc](https://github.com/fablab-wue/SliderDoc)**.
+Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/SliderMC)** (STEP/DIR, planner, limits). Docs and manuals live in **[SliderDoc](https://github.com/fablab-wue/SliderDoc)**. Optionally a **second** STEP/DIR axis (typical **slider travel + pan**) is time-synced with the first — enable `axis2_use` on SliderMC; `MC_Client` already speaks both axes.
 
 > Documentation: [SliderDoc](https://github.com/fablab-wue/SliderDoc)
 
@@ -24,7 +24,8 @@ Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/Slid
 - **Feel the move** — live retarget · sine-smooth ramps · tap/hold MOVE cruise · FAST jog · optional joystick  
 - **Production moves** — Pos A / B / C with power-off recall · pair loops · DELAY walk-ins · TIMELAPSE dividers · pause / resume  
 - **Eyes-off status** — I2C OLED (SSD1306 / SH1106 / SSD1309) · RGB LED · optional NeoPixel (same colours)  
-- **Open stack** — edit `SliderPins.py`, Thonny / REPL workflow · fork the panel or build on `MC_Client` / `UIC_Base` · or use the stack as a **construction kit** for custom rigs  
+- **Open stack** — edit `SliderPins.py`, Thonny / REPL workflow · fork the panel or build on `MC_Client` / `UIC_Base` · or use the stack as a **construction kit** for custom 1- or 2-axis rigs  
+- **Optional 2-axis** — linear travel + time-synced pan (or tilt/turn); SliderMC `axis2_use`; `MC_Client` dual `moveTo` / `home`. Shipping JKSlider / B4Slider stay 1-axis faces  
 - **Split architecture** — OLED, keypad, and pots never steal STEP timing ([SliderMC](https://github.com/fablab-wue/SliderMC) owns motion)  
 - **Maker-friendly** — upcycle rails and linear units · A4988, DRV8825, TMC, and other STEP/DIR drivers  
 
@@ -34,7 +35,7 @@ How this compares to commercial motorized sliders: [architecture/compare.md](htt
 
 ## UIC panel projects
 
-The stack is a **software and electronics construction kit** — turnkey panel **faces** on the same motion firmware, or your own mix of libs and wiring. Pick the panel that fits your shoot and enclosure, or aim the same parts at a mini-dolly, rotating head, or turntable.
+The stack is a **software and electronics construction kit** — turnkey panel **faces** on the same motion firmware, or your own mix of libs and wiring. Pick the panel that fits your shoot and enclosure, or aim the same parts at a mini-dolly, rotating head, turntable, or a **slider + pan** (2-axis) custom UI.
 
 | Project | Purpose | When to use | Entry |
 |---------|---------|-------------|--------|
@@ -42,7 +43,7 @@ The stack is a **software and electronics construction kit** — turnkey panel *
 | **B4Slider** | Minimal 4-button remote — MOVE L/R, SET, OPTION, one SPEED pot, RGB status | Slim handheld, budget builds, or when you do not need OLED, keypad, marks, or timelapse | [`B4Slider.py`](B4Slider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/b4slider/user-manual.md) |
 | *More coming* | Additional UIC apps on the same `MC_Client` / UART protocol | Custom rigs and new panel ideas | [project template](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/_template/README.md) |
 
-Under the hood, all projects share **`MC_Client`** + **`UIC_Base`** — kit libraries for your own feature-rich motorized camera slider UI, mini-dolly, rotating head, turntable, or other STEP/DIR rig.
+Under the hood, all projects share **`MC_Client`** + **`UIC_Base`** — kit libraries for your own feature-rich motorized camera slider UI, mini-dolly, rotating head, turntable, **2-axis slider + pan**, or other STEP/DIR rig.
 
 ---
 
@@ -115,7 +116,7 @@ SimpleExample.run()
 
 Beyond turnkey panels, treat **JKSlider**, **B4Slider**, **`MC_Client`**, and **`UIC_Base`** as kit parts — fork a face, strip features, or wire a new enclosure for a one-off slider, mini-dolly, rotating head, or turntable.
 
-Compose a UART motion client (`MC_Client`) with local UI (`UIC_Base`) on the UIC Pico: millimetre API to **SliderMC**, soft and hard limits, EMO, RGB / NeoPixel / OLED. STEP/DIR generation runs on the motion Pico.
+Compose a UART motion client (`MC_Client`) with local UI (`UIC_Base`) on the UIC Pico: millimetre API to **SliderMC**, soft and hard limits, EMO, RGB / NeoPixel / OLED. STEP/DIR generation runs on the motion Pico. Optional **2-axis** (typical **linear + pan**, time-synced) is on the same client.
 
 JKSlider and B4Slider are applications on top — use the libraries when you want a custom UI, scripted moves, or the next panel face.
 
@@ -147,6 +148,8 @@ async def main():
 
 asyncio.run(main())
 ```
+
+**Optional 2-axis** (typical **axis 1 = linear**, **axis 2 = pan**): dual `MT`/`M` is [time-synced](https://github.com/fablab-wue/SliderDoc/blob/main/mc/dual-movement.md), not CNC. `mc.axis_count` / `getAxisCount()` come from CG `axis2_use` (not live `IA`). Shipping panels keep `set_status_callback` (5-arg, axis 1) even on a 2-axis MC. Custom 2-axis UIs register `set_status2_callback` (9-arg) and use `moveTo(pos, pos2)`, `moveTo(None, pos2)` → `MT _ pos2`, `home(2)`.
 
 | Idea | Entry point |
 |------|-------------|
