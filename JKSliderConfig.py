@@ -23,16 +23,18 @@ PIN_POT_JOYSTICK = None   # Optional centre-return stick (e.g. 28 = ADC2). None 
 # Input mode
 # ---------------------------------------------------------------------------
 # "button" = one GPIO per switch (active-low, pull-ups).
-# "keypad" = 4x3 matrix on PIN_KEYPAD_ROWS / PIN_KEYPAD_COLS;
-#            discrete BTN_STOP (GP5) and BTN_OPTION (GP13) still ORed in.
+# "keypad" = matrix on PIN_KEYPAD_ROWS / PIN_KEYPAD_COLS (up to 4x4);
+#            discrete BTN_STOP (GP5) and PIN_BTN_OPTION_KEYPAD (GP14) ORed in.
+#            Key map: JKSliderKeypad.py (or KEYPAD_LAYOUT below).
 JKS_INPUT_MODE = "keypad"
 
 # ---------------------------------------------------------------------------
 # Discrete buttons (always available)
 # ---------------------------------------------------------------------------
-# In keypad mode: ORed with matrix STOP / OPTION after ghost filter.
+# Button mode: PIN_BTN_OPTION = GP13. Keypad mode: discrete OPTION = GP14.
 PIN_BTN_STOP = 5
-PIN_BTN_OPTION = 13     # modifier (hold + other control); alone does nothing
+PIN_BTN_OPTION = 13     # button mode; modifier (hold + other control)
+PIN_BTN_OPTION_KEYPAD = 14  # keypad mode discrete OPTION (ORed with matrix *)
 
 # Discrete BTN_* — used when JKS_INPUT_MODE == "button"
 PIN_BTN_MOVE_L = 6
@@ -49,10 +51,12 @@ PIN_BTN_TIMELAPSE = 15  # Optional: tap → TL divider; long → divider 1
 # Keypad matrix — used when JKS_INPUT_MODE == "keypad"
 # ---------------------------------------------------------------------------
 # Rows GP6..GP9 = KP_ROW1..KP_ROW4 (KP_ROW1 = upper keys on GP6).
-# Cols GP10..GP12 = KP_COL1..KP_COL3.
-# High-Z row scan (no row diodes). See SliderDoc uic/projects/jkslider/technical/panel.md
+# Cols GP10..GP12 = KP_COL1..KP_COL3; GP13 = KP_COL_4 (scanned if LAYOUT has 4 cols).
+# High-Z row scan (no row diodes). Ghosting is the maker's job.
+# Layout: JKSliderKeypad.py. Set KEYPAD_LAYOUT to a tuple to override that file.
 PIN_KEYPAD_ROWS = (6, 7, 8, 9)
-PIN_KEYPAD_COLS = (10, 11, 12)
+PIN_KEYPAD_COLS = (10, 11, 12, 13)
+KEYPAD_LAYOUT = None
 
 # ---------------------------------------------------------------------------
 # Joystick / pot feel

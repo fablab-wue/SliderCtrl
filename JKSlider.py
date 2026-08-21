@@ -8,8 +8,10 @@
 #   POT_SPEED / POT_ACCEL / POT_JOYSTICK pots -> GP26 / GP27 / GP28 (ADC)
 #   JKS_INPUT_MODE = "button": one GPIO per BTN_* (active-low, pull-ups)
 #     BTN_STOP=GP5, MOVE=6/7, FAST=8/9, A/B/C=10/11/12, OPTION=13, DELAY=14, TL=15
-#   JKS_INPUT_MODE = "keypad": KP_ROW1..4=GP6-9, KP_COL1..3=GP10-12 (High-Z row scan);
-#     discrete BTN_STOP on GP5 and BTN_OPTION on GP13 (ORed with matrix).
+#   JKS_INPUT_MODE = "keypad": KP_ROW1..4=GP6-9, KP_COL1..3=GP10-12,
+#     optional KP_COL_4=GP13 (4-column LAYOUT in JKSliderKeypad.py).
+#     Discrete BTN_STOP on GP5; discrete OPTION on GP14 (ORed with matrix).
+#     Layout: JKSliderKeypad.py (or KEYPAD_LAYOUT in SliderPins).
 #     See https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/panel.md
 #
 # Usage:
@@ -142,14 +144,78 @@ class _Btn:
                 self.extra_long_press = True
 
 
-# 4x3 keypad: rows GP6-9 (KP_ROW1..KP_ROW4), cols GP10-12 (KP_COL1..KP_COL3).
-# Duplicate OPTION keys OR together. KP_ROW1 = upper keys (GP6).
-_KEYPAD_LAYOUT = (
-    ("MOVE_L", "DELAY", "MOVE_R"),  # KP_ROW1 GP6
-    ("FAST_L", "TIMELAPSE", "FAST_R"),  # KP_ROW2 GP7
-    ("A", "B", "C"),  # KP_ROW3 GP8
-    ("OPTION", "STOP", "OPTION"),  # KP_ROW4 GP9
+_KNOWN_KEYPAD_NAMES = (
+    "MOVE_L",
+    "MOVE_R",
+    "FAST_L",
+    "FAST_R",
+    "STOP",
+    "A",
+    "B",
+    "C",
+    "OPTION",
+    "DELAY",
+    "TIMELAPSE",
 )
+
+
+def _normalize_keypad_layout(raw):
+    """Pad/trim LAYOUT to at most 4x4. Returns (rows, ncols, truncated)."""
+    rows = []
+    truncated = False
+    if raw is None:
+        raw = ()
+    for i, row in enumerate(raw):
+        if i >= 4:
+            truncated = True
+            break
+        cells = []
+        for j, cell in enumerate(row):
+            if j >= 4:
+                truncated = True
+                break
+            if cell is None:
+                cells.append(None)
+            else:
+                s = str(cell).strip()
+                if not s or s.lower() == "none":
+                    cells.append(None)
+                else:
+                    cells.append(s)
+        rows.append(cells)
+    ncols = 0
+    for row in rows:
+        n = len(row)
+        if n > ncols:
+            ncols = n
+    if ncols < 1:
+        ncols = 1
+    padded = []
+    for row in rows:
+        cells = list(row[:ncols])
+        while len(cells) < ncols:
+            cells.append(None)
+        padded.append(tuple(cells))
+    return padded, ncols, truncated
+
+
+def _load_keypad_layout():
+    layout = getattr(jks, "KEYPAD_LAYOUT", None)
+    if not layout:
+        try:
+            import JKSliderKeypad as _kpad
+
+            layout = getattr(_kpad, "LAYOUT", None)
+        except ImportError:
+            layout = None
+    if not layout:
+        layout = (
+            ("MOVE_L", "DELAY", "MOVE_R"),
+            ("FAST_L", "TIMELAPSE", "FAST_R"),
+            ("A", "B", "C"),
+            ("OPTION", "STOP", "OPTION"),
+        )
+    return _normalize_keypad_layout(layout)
 
 
 class _KeypadScanner:
@@ -158,28 +224,32 @@ class _KeypadScanner:
     No row diodes required; Hi-Z idle avoids GPIO fights on multi-key presses.
     """
 
-    def __init__(self, row_pins, col_pins, layout=_KEYPAD_LAYOUT):
-        self._rows = [Pin(int(p), Pin.IN) for p in row_pins]
-        self._cols = [Pin(int(p), Pin.IN, Pin.PULL_UP) for p in col_pins]
+    def __init__(self, row_pins, col_pins, layout):
+        n_rows = len(layout)
+        n_cols = len(layout[0]) if layout else 0
+        self._rows = [Pin(int(p), Pin.IN) for p in list(row_pins)[:n_rows]]
+        self._cols = [Pin(int(p), Pin.IN, Pin.PULL_UP) for p in list(col_pins)[:n_cols]]
         self._layout = layout
 
     def read(self):
         """Return set of pressed logical key names.
 
-        Both bottom OPTION cells become OPTION; if both are down, also
+        Both OPTION cells become OPTION; if both are down, also
         DOUBLE_OPTION (for emergency halt with STOP).
+        Unknown layout names are ignored.
         """
         active = set()
         option_n = 0
         for r, row in enumerate(self._rows):
             row.init(Pin.OUT, value=0)
             time.sleep_us(5)
+            names = self._layout[r] if r < len(self._layout) else ()
             for c, col in enumerate(self._cols):
                 if col.value() == 0:
-                    name = self._layout[r][c]
+                    name = names[c] if c < len(names) else None
                     if name == "OPTION":
                         option_n += 1
-                    elif name:
+                    elif name in _KNOWN_KEYPAD_NAMES:
                         active.add(name)
             row.init(Pin.IN)
         if option_n >= 1:
@@ -189,32 +259,22 @@ class _KeypadScanner:
         return active
 
 
-def _filter_keypad_line_ghosts(active):
-    """Drop known matrix ghosts on this layout.
-
-    Classic ghost: OPTION + two of A/B/C → false matrix STOP.
-    Dual OPTION keys make OPTION+MOVE_L+MOVE_R / OPTION+FAST_L+FAST_R safe.
-    """
-    active = set(active)
-    abc_n = (
-        (1 if "A" in active else 0)
-        + (1 if "B" in active else 0)
-        + (1 if "C" in active else 0)
-    )
-    if "OPTION" in active and abc_n >= 2:
-        active.discard("STOP")
-    return active
-
-
 def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
     """Build button objects + update_fn for button or keypad mode."""
     mode = str(getattr(jks, "JKS_INPUT_MODE", "button")).lower()
     if mode == "keypad":
+        layout, ncols, truncated = _load_keypad_layout()
         row_pins = getattr(jks, "PIN_KEYPAD_ROWS", (6, 7, 8, 9))
-        col_pins = getattr(jks, "PIN_KEYPAD_COLS", (10, 11, 12))
-        scanner = _KeypadScanner(row_pins, col_pins)
+        col_all = getattr(jks, "PIN_KEYPAD_COLS", (10, 11, 12, 13))
+        col_pins = list(col_all)[:ncols]
+        while len(col_pins) < ncols:
+            col_pins.append(13)
+        option_gpio = int(getattr(jks, "PIN_BTN_OPTION_KEYPAD", 14))
+        scanner = _KeypadScanner(row_pins, col_pins, layout)
         stop_pin = Pin(jks.PIN_BTN_STOP, Pin.IN, Pin.PULL_UP)
-        option_pin = Pin(jks.PIN_BTN_OPTION, Pin.IN, Pin.PULL_UP)
+        option_pin = Pin(option_gpio, Pin.IN, Pin.PULL_UP)
+        if truncated:
+            dbg(3, "keypad layout truncated to 4x4")
 
         def _vbtn():
             return _Btn(None, debounce, long_ms)
@@ -248,18 +308,18 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
         }
 
         def update_all():
-            active = _filter_keypad_line_ghosts(scanner.read())
-            # Discrete GP5 STOP always wins (real E-stop), after filter.
+            active = scanner.read()
+            # Discrete GP5 STOP always wins (real E-stop).
             if stop_pin.value() == 0:
                 active.add("STOP")
-            # Discrete GP13 OPTION ORed with matrix * (DOUBLE_OPTION stays matrix-only).
+            # Discrete GP14 OPTION ORed with matrix * (DOUBLE_OPTION stays matrix-only).
             if option_pin.value() == 0:
                 active.add("OPTION")
             for name, btn in by_name.items():
                 btn.update(name in active)
             btn_double_option.update("DOUBLE_OPTION" in active)
 
-        dbg(4, "input keypad", list(row_pins), list(col_pins))
+        dbg(4, "input keypad", list(row_pins), list(col_pins), "opt", option_gpio)
     else:
         btn_move_l = _Btn(jks.PIN_BTN_MOVE_L, debounce, long_ms)
         btn_move_r = _Btn(jks.PIN_BTN_MOVE_R, debounce, long_ms)
