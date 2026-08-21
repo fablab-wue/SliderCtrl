@@ -174,7 +174,7 @@ Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for
 
 **JKSlider**
 
-- Buttons or 3×4 keypad · pots for SPEED and ACCEL · RGB LED · OLED · (optional) joystick
+- Buttons or keypad (3×4 default, up to 4×4) · pots for SPEED and ACCEL · RGB LED · OLED · (optional) joystick
 
 **B4Slider**
 

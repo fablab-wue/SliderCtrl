@@ -109,13 +109,14 @@ JKSlider = {
     "PIN_POT_JOYSTICK": None,  # Optional centre-return stick (e.g. 28 = ADC2). None = off.
     # Input mode
     # "button" = one GPIO per switch (active-low, pull-ups).
-    # "keypad" = 4x3 matrix on PIN_KEYPAD_ROWS / PIN_KEYPAD_COLS;
-    #            discrete BTN_STOP (GP5) and BTN_OPTION (GP13) still ORed in.
+    # "keypad" = matrix on PIN_KEYPAD_ROWS / PIN_KEYPAD_COLS (up to 4x4);
+    #            discrete STOP GP5; discrete OPTION GP14; COL4 = GP13.
+    #            Key map: JKSliderKeypad.py (or KEYPAD_LAYOUT here).
     "JKS_INPUT_MODE": "keypad",
-    # Discrete buttons (always available)
-    # In keypad mode: ORed with matrix STOP / OPTION after ghost filter.
+    # Discrete buttons
     "PIN_BTN_STOP": 5,
-    "PIN_BTN_OPTION": 13,  # modifier (hold + other control); alone does nothing
+    "PIN_BTN_OPTION": 13,  # button mode
+    "PIN_BTN_OPTION_KEYPAD": 14,  # keypad mode discrete OPTION
     # Discrete BTN_* — used when JKS_INPUT_MODE == "button"
     "PIN_BTN_MOVE_L": 6,
     "PIN_BTN_MOVE_R": 7,
@@ -127,11 +128,10 @@ JKSlider = {
     "PIN_BTN_DELAY": 14,  # Optional: hold N s → delay; short → delay off
     "PIN_BTN_TIMELAPSE": 15,  # Optional: tap → TL divider; long → divider 1
     # Keypad matrix — used when JKS_INPUT_MODE == "keypad"
-    # Rows GP6..GP9 = KP_ROW1..KP_ROW4 (KP_ROW1 = upper keys on GP6).
-    # Cols GP10..GP12 = KP_COL1..KP_COL3.
-    # High-Z row scan (no row diodes). See SliderDoc uic/projects/jkslider/technical/panel.md
+    # Rows GP6..GP9 = KP_ROW1..KP_ROW4. Cols GP10..GP13 = KP_COL1..KP_COL_4.
     "PIN_KEYPAD_ROWS": (6, 7, 8, 9),
-    "PIN_KEYPAD_COLS": (10, 11, 12),
+    "PIN_KEYPAD_COLS": (10, 11, 12, 13),
+    "KEYPAD_LAYOUT": None,
     # Joystick / pot feel
     "JOYSTICK_DEADZONE": 0.08,
     "JKS_SPEED_DEADZONE": 0.02,
