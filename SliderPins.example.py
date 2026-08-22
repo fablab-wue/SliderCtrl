@@ -189,6 +189,61 @@ JKSlider = {
 }
 
 # ---------------------------------------------------------------------------
+# Alternative: Waveshare RP2040-Zero as UIC (JKSlider button mode)
+#
+# Pinout: SliderDoc assets/img/rp2040zero_pinout_button.png
+#         (`python tools/render_rp2040zero_pinout_SliderMC.py button`)
+#
+# Copy this file to SliderPins.py, then uncomment the three .update() lines
+# at the bottom of this block. Pico defaults stay in the dicts above until then.
+#
+# Hardware notes:
+#   UART0 TX/RX = GP12/13 (not Pico GP16/17)
+#   OLED I2C1 SDA/SCL = GP14/15 → DSP_I2C_ID = 1
+#   RGB LED = GP11/10/9; camera = GP29; DELAY/TIMELAPSE = underside GP25/24
+#   JKS_INPUT_MODE must be "button" (no keypad matrix on this map)
+#   GP16 = onboard WS2812 (optional PIN_NEOPIXEL)
+# ---------------------------------------------------------------------------
+RP2040_ZERO_MC_config = {
+    "PIN_UART_TX": 12,
+    "PIN_UART_RX": 13,
+}
+
+RP2040_ZERO_UIC_config = {
+    "PIN_LED_R": 11,
+    "PIN_LED_G": 10,
+    "PIN_LED_B": 9,
+    "PIN_NEOPIXEL": None,
+    "PIN_CTRL_CAMERA": 29,
+    "DSP_I2C_ID": 1,
+    "PIN_DSP_I2C_SDA": 14,
+    "PIN_DSP_I2C_SCL": 15,
+}
+
+RP2040_ZERO_JKSlider = {
+    "PIN_POT_SPEED": 26,
+    "PIN_POT_ACCEL": 27,
+    "PIN_POT_JOYSTICK": 28,
+    "JKS_INPUT_MODE": "button",
+    "PIN_BTN_STOP": 0,
+    "PIN_BTN_OPTION": 8,
+    "PIN_BTN_MOVE_L": 1,
+    "PIN_BTN_MOVE_R": 2,
+    "PIN_BTN_FAST_L": 3,
+    "PIN_BTN_FAST_R": 4,
+    "PIN_BTN_A": 5,
+    "PIN_BTN_B": 6,
+    "PIN_BTN_C": 7,
+    "PIN_BTN_DELAY": 25,
+    "PIN_BTN_TIMELAPSE": 24,
+}
+
+# Uncomment to apply the RP2040-Zero UIC map:
+# MC_config.update(RP2040_ZERO_MC_config)
+# UIC_config.update(RP2040_ZERO_UIC_config)
+# JKSlider.update(RP2040_ZERO_JKSlider)
+
+# ---------------------------------------------------------------------------
 # B4Slider — 4-button app (MOVE_L/R, OPTION, SET + SPEED pot). Consumed by B4SliderConfig.py
 # ---------------------------------------------------------------------------
 B4Slider = {
