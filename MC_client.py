@@ -627,20 +627,49 @@ class MC_Client:
         self._accel_mm_s2 = max(float(accel), cfg.MIN_SPEED_MM_S)
         self._cmd("SA", _fmt_arg(self._accel_mm_s2))
 
-    def setSoftLimits(self, min_limit, max_limit):
-        self._soft_min = min_limit
-        self._soft_max = max_limit
-        self.slider_min = min_limit
-        self.slider_max = max_limit
-        if min_limit is None:
-            self._cmd("CS", "slider_min none")
+    def setLeft(self, pos=None, pos2=None):
+        """Session working-window left (`SL`). Both None = bare reset to envelope."""
+        if pos is None and pos2 is None:
+            self._cmd("SL")
+            self._soft_min = self.slider_min
         else:
-            self._cmd("CS", "slider_min %s" % _fmt_arg(float(min_limit)))
-        if max_limit is None:
-            self._cmd("CS", "slider_max none")
-        else:
-            self._cmd("CS", "slider_max %s" % _fmt_arg(float(max_limit)))
+            self._cmd("SL", pos, pos2)
+            if pos is not None:
+                self._soft_min = float(pos)
         self._refresh_soft_limit_flag()
+
+    def setRight(self, pos=None, pos2=None):
+        """Session working-window right (`SR`). Both None = bare reset to envelope."""
+        if pos is None and pos2 is None:
+            self._cmd("SR")
+            self._soft_max = self.slider_max
+        else:
+            self._cmd("SR", pos, pos2)
+            if pos is not None:
+                self._soft_max = float(pos)
+        self._refresh_soft_limit_flag()
+
+    def getLeft(self):
+        """Cached session left (envelope after fetchConfig / bare `SL`)."""
+        return self._soft_min
+
+    def getRight(self):
+        """Cached session right (envelope after fetchConfig / bare `SR`)."""
+        return self._soft_max
+
+    def setSoftLimits(self, min_limit, max_limit):
+        """Session working window via `SL`/`SR` (does not persist `slider_min/max`).
+
+        ``None`` on a side sends a bare `SL`/`SR` (open that side to the envelope).
+        """
+        if min_limit is None:
+            self.setLeft()
+        else:
+            self.setLeft(float(min_limit))
+        if max_limit is None:
+            self.setRight()
+        else:
+            self.setRight(float(max_limit))
 
     def enable(self, on):
         if on and self.isDRVErrorActive():
