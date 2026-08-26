@@ -628,46 +628,63 @@ class MC_Client:
         self._cmd("SA", _fmt_arg(self._accel_mm_s2))
 
     def setLeft(self, pos=None, pos2=None):
-        """Session working-window left (`SL`). Both None = bare reset to envelope."""
+        """Session working-window left (`SL`). Both None = bare reset to envelope.
+
+        Dual: ``None`` on one axis sends skip ``_``. To clear a side to session
+        None, pass the string ``"none"`` or use ``setSoftLimits``.
+        """
         if pos is None and pos2 is None:
             self._cmd("SL")
             self._soft_min = self.slider_min
         else:
             self._cmd("SL", pos, pos2)
-            if pos is not None:
+            if isinstance(pos, str) and pos.lower() == "none":
+                self._soft_min = self.slider_min
+            elif pos is not None:
                 self._soft_min = float(pos)
         self._refresh_soft_limit_flag()
 
     def setRight(self, pos=None, pos2=None):
-        """Session working-window right (`SR`). Both None = bare reset to envelope."""
+        """Session working-window right (`SR`). Both None = bare reset to envelope.
+
+        Dual: ``None`` on one axis sends skip ``_``. To clear a side, pass
+        ``"none"`` or use ``setSoftLimits``.
+        """
         if pos is None and pos2 is None:
             self._cmd("SR")
             self._soft_max = self.slider_max
         else:
             self._cmd("SR", pos, pos2)
-            if pos is not None:
+            if isinstance(pos, str) and pos.lower() == "none":
+                self._soft_max = self.slider_max
+            elif pos is not None:
                 self._soft_max = float(pos)
         self._refresh_soft_limit_flag()
 
     def getLeft(self):
-        """Cached session left (envelope after fetchConfig / bare `SL`)."""
+        """Cached effective left (envelope after fetchConfig / bare `SL` / `none`)."""
         return self._soft_min
 
     def getRight(self):
-        """Cached session right (envelope after fetchConfig / bare `SR`)."""
+        """Cached effective right (envelope after fetchConfig / bare `SR` / `none`)."""
         return self._soft_max
 
     def setSoftLimits(self, min_limit, max_limit):
         """Session working window via `SL`/`SR` (does not persist `slider_min/max`).
 
-        ``None`` on a side sends a bare `SL`/`SR` (open that side to the envelope).
+        ``None`` on a side sends ``SL none`` / ``SR none`` (session cleared;
+        effective limit falls back to envelope when set).
         """
         if min_limit is None:
-            self.setLeft()
+            self._cmd("SL", "none")
+            self._soft_min = self.slider_min
+            self._refresh_soft_limit_flag()
         else:
             self.setLeft(float(min_limit))
         if max_limit is None:
-            self.setRight()
+            self._cmd("SR", "none")
+            self._soft_max = self.slider_max
+            self._refresh_soft_limit_flag()
         else:
             self.setRight(float(max_limit))
 
