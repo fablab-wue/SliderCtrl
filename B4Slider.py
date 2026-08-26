@@ -264,6 +264,7 @@ async def main():
     soft_r = float(slider_max)
 
     def apply_soft_limits():
+        """Push the A/B working window to MC session SL/SR (not CS slider_min)."""
         nonlocal soft_l, soft_r
         if soft_l > soft_r:
             soft_l, soft_r = soft_r, soft_l
@@ -508,14 +509,16 @@ async def main():
                         dbg(3, "B4S reset both soft")
                 elif move_l.pressed():
                     if move_l.long_press or btn_set.long_press:
+                        mc.setLeft()
                         soft_l = float(slider_min)
-                        apply_soft_limits()
+                        ui.set_soft_limits(soft_l, soft_r)
                         ui.ledBlip(_WHITE, blip_ms)
                         dbg(3, "B4S reset soft_l")
                 elif move_r.pressed():
                     if move_r.long_press or btn_set.long_press:
+                        mc.setRight()
                         soft_r = float(slider_max)
-                        apply_soft_limits()
+                        ui.set_soft_limits(soft_l, soft_r)
                         ui.ledBlip(_WHITE, blip_ms)
                         dbg(3, "B4S reset soft_r")
                 await asyncio.sleep_ms(20)
