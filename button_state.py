@@ -216,6 +216,41 @@ def resolve_move_semantics(left, right, option_active, tap_ms=333):
     )
 
 
+def resolve_stop_combo(
+    stop_edge_press,
+    option_active,
+    a_pressed,
+    b_pressed,
+    c_pressed,
+    double_option=False,
+):
+    """Resolve STOP-related combos before the generic stop action.
+
+    The helper intentionally models the documented JKSlider control chords while
+    keeping the app-specific details out of the raw button driver. It returns a
+    stable semantic action name, e.g. "goto_min", "goto_mid", "goto_max",
+    "home", "peek", or "stop".
+    """
+    if stop_edge_press and bool(double_option):
+        return "halt"
+
+    if stop_edge_press and bool(option_active):
+        if bool(a_pressed) and not b_pressed and not c_pressed:
+            return "home"
+        if not a_pressed and not b_pressed and not c_pressed:
+            return "peek"
+
+    if stop_edge_press and not option_active:
+        if bool(a_pressed) and not b_pressed and not c_pressed:
+            return "goto_min"
+        if bool(b_pressed) and not a_pressed and not c_pressed:
+            return "goto_mid"
+        if bool(c_pressed) and not a_pressed and not b_pressed:
+            return "goto_max"
+
+    return "stop"
+
+
 def allow_move_out_of_soft_limit(pos_mm, direction, soft_min=None, soft_max=None):
     """Return True when the requested direction is legal for a soft-limit state.
 

@@ -364,6 +364,18 @@ async def main():
         ui.ledFlash(_RED, 2, flash_on, flash_off)
         dbg(3, "B4S all-four reset")
 
+    def apply_accel_preset(name):
+        nonlocal accel_preset, accel_cmd
+        if name == "H":
+            accel_preset = "H"
+            accel_cmd = accel_h
+        else:
+            accel_preset = "L"
+            accel_cmd = accel_l
+        if not use_accel_pot:
+            mc.setAcceleration(accel_cmd)
+        return accel_cmd
+
     def start_cruise(direction, locked, speed_boost=False, accel_boost=False):
         nonlocal mode, cruise_dir, cruise_locked, option_boost
         cruise_dir = direction
@@ -542,6 +554,9 @@ async def main():
                     continue
 
             # --- SET alone ------------------------------------------------
+            # Timed preset state machine: 1 s = L, 3 s = H, 5 s = learn.
+            # Learn mode uses the SPEED pot as the live accel value until release,
+            # then it latches into the current preset slot.
             if st and not opt and not move_l.pressed() and not move_r.pressed():
                 if mc.isMoving() or mode != _IDLE:
                     if btn_set.edge_press:
@@ -572,15 +587,11 @@ async def main():
                         ui.ledFlash(_VIOLET, 3, flash_on, flash_off)
                         dbg(3, "B4S accel learn", accel_cmd)
                     elif btn_set.extra_long_press:
-                        accel_preset = "H"
-                        accel_cmd = accel_h
-                        mc.setAcceleration(accel_cmd)
+                        apply_accel_preset("H")
                         ui.ledFlash(_VIOLET, 2, flash_on, flash_off)
                         dbg(3, "B4S accel H", accel_cmd)
                     elif btn_set.long_press:
-                        accel_preset = "L"
-                        accel_cmd = accel_l
-                        mc.setAcceleration(accel_cmd)
+                        apply_accel_preset("L")
                         ui.ledFlash(_VIOLET, 1, flash_on, flash_off)
                         dbg(3, "B4S accel L", accel_cmd)
                 await asyncio.sleep_ms(20)

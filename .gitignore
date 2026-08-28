@@ -9,3 +9,4 @@ __pycache__/
 Thumbs.db
 # Local board pin overlay (copy from SliderPins.example.py)
 SliderPins.py
+/.cursor/

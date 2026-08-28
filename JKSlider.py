@@ -5,10 +5,11 @@
 # Wiring (Raspberry Pi Pico UIC). Panel pins: JKSliderConfig.py
 # Display / camera / RGB: UIC_config.py; motion: MC_config.py + MC_Client UART GP16/17.
 # Hardware overrides: SliderPins.py (one file per slider HW).
+# Default shipped config is keypad mode. Alternate button mode is also supported.
 #   POT_SPEED / POT_ACCEL / POT_JOYSTICK pots -> GP26 / GP27 / GP28 (ADC)
 #   JKS_INPUT_MODE = "button": one GPIO per BTN_* (active-low, pull-ups)
 #     BTN_STOP=GP5, MOVE=6/7, FAST=8/9, A/B/C=10/11/12, OPTION=13, DELAY=14, TL=15
-#   JKS_INPUT_MODE = "keypad": KP_ROW1..4=GP6-9, KP_COL1..3=GP10-12,
+#   JKS_INPUT_MODE = "keypad" (default shipped): KP_ROW1..4=GP6-9, KP_COL1..3=GP10-12,
 #     optional KP_COL_4=GP13 (4-column LAYOUT in JKSliderKeypad.py).
 #     Discrete BTN_STOP on GP5; discrete OPTION on GP14 (ORed with matrix).
 #     Layout: JKSliderKeypad.py (or KEYPAD_LAYOUT in SliderPins).
@@ -28,7 +29,11 @@ import JKSliderConfig as jks
 import UIC_config as uic_cfg
 from MC_client import MC_Client
 from UIC_base import UIC_Base, dbg
-from button_state import allow_move_out_of_soft_limit, resolve_move_semantics
+from button_state import (
+    allow_move_out_of_soft_limit,
+    resolve_move_semantics,
+    resolve_stop_combo,
+)
 
 _IDLE = 0
 _CRUISE = 1
@@ -2146,11 +2151,16 @@ async def main():
             _stop_masked = option and _abc_n >= 2
             _double_option = btn_double_option.pressed()
             if (btn_stop.pressed() or btn_stop.edge_press) and not _stop_masked:
-                if (
-                    _double_option
-                    and btn_stop.pressed()
-                    and (btn_stop.edge_press or btn_double_option.edge_press)
-                ):
+                stop_action = resolve_stop_combo(
+                    stop_edge_press=bool(btn_stop.edge_press),
+                    option_active=bool(option),
+                    a_pressed=bool(btn_a.pressed()),
+                    b_pressed=bool(btn_b.pressed()),
+                    c_pressed=bool(btn_c.pressed()),
+                    double_option=bool(_double_option),
+                )
+
+                if stop_action == "halt":
                     # Both keypad OPTION keys + STOP → immediate emergency halt.
                     mc.halt()
                     _clear_move_pause()
@@ -2166,8 +2176,8 @@ async def main():
                     _flash_oled("Halt")
                     _halt_led_flash()
                     dbg(3, "Halt")
-                elif btn_stop.edge_press and option and btn_a.pressed():
-                    # OPTION + STOP + A (A already down when STOP pressed)
+                elif stop_action == "home":
+                    # OPTION + STOP + A → homing
                     _cancel_pending()
                     _clear_move_pause()
                     _msm_clear()
@@ -2185,7 +2195,7 @@ async def main():
                     else:
                         _flash_oled("No homing")
                         dbg(3, "No homing")
-                elif btn_stop.edge_press and option and _abc_n == 0:
+                elif stop_action == "peek":
                     if tl_div != 1 and tl_mode == "msm":
                         # OPTION + STOP in MSM: cycle camera FPS.
                         camera_fps = _next_camera_fps(camera_fps)
@@ -2196,6 +2206,39 @@ async def main():
                     else:
                         # OPTION + STOP: peek marks (TL×1, Cont, or idle).
                         _peek_marks()
+                elif stop_action == "goto_min":
+                    if not driver_on:
+                        _enable(True)
+                        driver_on = True
+                    if soft_min is None:
+                        _flash_oled("No soft min")
+                    elif not _speed_ok(speed):
+                        _flash_oled("Set SPEED")
+                    else:
+                        _request_action(("goto", "min", soft_min), speed, accel)
+                    dbg(3, "Goto min", soft_min)
+                elif stop_action == "goto_mid":
+                    if soft_min is None:
+                        _flash_oled("No soft mid")
+                    else:
+                        mid = 0.5 * (float(soft_min) + float(soft_max))
+                        if not driver_on:
+                            _enable(True)
+                            driver_on = True
+                        if not _speed_ok(speed):
+                            _flash_oled("Set SPEED")
+                        else:
+                            _request_action(("goto", "mid", mid), speed, accel)
+                        dbg(3, "Goto mid", round(mid, 2))
+                elif stop_action == "goto_max":
+                    if not driver_on:
+                        _enable(True)
+                        driver_on = True
+                    if not _speed_ok(speed):
+                        _flash_oled("Set SPEED")
+                    else:
+                        _request_action(("goto", "max", soft_max), speed, accel)
+                    dbg(3, "Goto max", round(soft_max, 2))
                 elif btn_stop.edge_press and not option:
                     if not driver_on:
                         _enable(True)
@@ -2255,64 +2298,6 @@ async def main():
                     _flash_oled("Halt")
                     _halt_led_flash()
                     dbg(3, "Halt")
-                elif option and btn_a.edge_press:
-                    # OPTION + STOP + A → homing
-                    _cancel_pending()
-                    _clear_move_pause()
-                    _msm_clear()
-                    if getattr(jks, "JKS_HOMING_ENABLED", True):
-                        _enable(True)
-                        driver_on = True
-                        mode = _HOMING
-                        cruise_dir = 0
-                        cruise_locked = False
-                        goto_target = None
-                        loop_target = None
-                        loop_dwell_until = None
-                        mc.home()
-                        dbg(3, "Homing")
-                    else:
-                        _flash_oled("No homing")
-                        dbg(3, "No homing")
-                elif btn_a.edge_press:
-                    if not driver_on:
-                        _enable(True)
-                        driver_on = True
-                    if soft_min is None:
-                        _flash_oled("No soft min")
-                    elif not _speed_ok(speed):
-                        _flash_oled("Set SPEED")
-                    else:
-                        _request_action(
-                            ("goto", "min", soft_min), speed, accel
-                        )
-                    dbg(3, "Goto min", soft_min)
-                elif btn_b.edge_press:
-                    if soft_min is None:
-                        _flash_oled("No soft mid")
-                    else:
-                        mid = 0.5 * (float(soft_min) + float(soft_max))
-                        if not driver_on:
-                            _enable(True)
-                            driver_on = True
-                        if not _speed_ok(speed):
-                            _flash_oled("Set SPEED")
-                        else:
-                            _request_action(
-                                ("goto", "mid", mid), speed, accel
-                            )
-                        dbg(3, "Goto mid", round(mid, 2))
-                elif btn_c.edge_press:
-                    if not driver_on:
-                        _enable(True)
-                        driver_on = True
-                    if not _speed_ok(speed):
-                        _flash_oled("Set SPEED")
-                    else:
-                        _request_action(
-                            ("goto", "max", soft_max), speed, accel
-                        )
-                    dbg(3, "Goto max", round(soft_max, 2))
                 _push_oled(delay_preview_s=delay_preview_s)
                 await asyncio.sleep_ms(20)
                 continue

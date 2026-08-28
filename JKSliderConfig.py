@@ -26,6 +26,7 @@ PIN_POT_JOYSTICK = None   # Optional centre-return stick (e.g. 28 = ADC2). None 
 # "keypad" = matrix on PIN_KEYPAD_ROWS / PIN_KEYPAD_COLS (up to 4x4);
 #            discrete BTN_STOP (GP5) and PIN_BTN_OPTION_KEYPAD (GP14) ORed in.
 #            Key map: JKSliderKeypad.py (or KEYPAD_LAYOUT below).
+# Default shipped JKSlider config uses keypad mode.
 JKS_INPUT_MODE = "keypad"
 
 # ---------------------------------------------------------------------------

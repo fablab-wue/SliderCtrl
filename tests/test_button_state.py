@@ -61,6 +61,74 @@ class TestButtonState(unittest.TestCase):
             button_state.allow_move_out_of_soft_limit(50.0, 1, 0.0, 100.0)
         )
 
+    def test_resolve_stop_combo_priority(self):
+        self.assertEqual(
+            button_state.resolve_stop_combo(
+                stop_edge_press=True,
+                option_active=False,
+                a_pressed=True,
+                b_pressed=False,
+                c_pressed=False,
+                double_option=False,
+            ),
+            "goto_min",
+        )
+        self.assertEqual(
+            button_state.resolve_stop_combo(
+                stop_edge_press=True,
+                option_active=False,
+                a_pressed=False,
+                b_pressed=True,
+                c_pressed=False,
+                double_option=False,
+            ),
+            "goto_mid",
+        )
+        self.assertEqual(
+            button_state.resolve_stop_combo(
+                stop_edge_press=True,
+                option_active=False,
+                a_pressed=False,
+                b_pressed=False,
+                c_pressed=True,
+                double_option=False,
+            ),
+            "goto_max",
+        )
+        self.assertEqual(
+            button_state.resolve_stop_combo(
+                stop_edge_press=True,
+                option_active=True,
+                a_pressed=True,
+                b_pressed=False,
+                c_pressed=False,
+                double_option=False,
+            ),
+            "home",
+        )
+        self.assertEqual(
+            button_state.resolve_stop_combo(
+                stop_edge_press=True,
+                option_active=False,
+                a_pressed=False,
+                b_pressed=False,
+                c_pressed=False,
+                double_option=True,
+            ),
+            "halt",
+        )
+        self.assertEqual(
+            button_state.resolve_stop_combo(
+                stop_edge_press=True,
+                option_active=False,
+                a_pressed=False,
+                b_pressed=False,
+                c_pressed=False,
+                double_option=False,
+            ),
+            "stop",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
