@@ -47,7 +47,7 @@ class MC_Client:
         if rx is None:
             rx = getattr(cfg, "PIN_UART_RX", 17)
         if baud is None:
-            baud = int(getattr(cfg, "UART_BAUD", 1_000_000))
+            baud = int(getattr(cfg, "UART_BAUD", 115_200))
         self._uart_tx = int(tx)
         self._uart_rx = int(rx)
         self._uart = UART(

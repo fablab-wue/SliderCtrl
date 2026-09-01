@@ -12,10 +12,10 @@
 # MC_Client defaults — consumed by MC_config.py
 # ---------------------------------------------------------------------------
 MC_config = {
-    # GPIO — UART to SliderMC @ 1 Mbaud (UART0)
+    # GPIO — UART to SliderMC @ 115200 baud (UART0)
     "PIN_UART_TX": 16,
     "PIN_UART_RX": 17,
-    "UART_BAUD": 1_000_000,
+    "UART_BAUD": 115_200,
     # UIC command floor (mm/s); planner ceilings live on MC
     "MIN_SPEED_MM_S": 0.006,
     "SOFT_LIMIT_WARN_MM": 10.0,

@@ -11,7 +11,7 @@
 #   Deflection from centre sets speed (up to setMaxSpeed)
 #
 # Copy MC_config.py, MC_client.py, and this file to the Pico
-# (SliderMC on UART GP16/17 @ 1 Mbaud), then:
+# (SliderMC on UART GP16/17 @ 115200 baud), then:
 #   import JoystickExample
 #   JoystickExample.run()
 

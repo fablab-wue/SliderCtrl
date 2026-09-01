@@ -8,10 +8,10 @@
 # ---------------------------------------------------------------------------
 # GPIO — UART to SliderMC
 # ---------------------------------------------------------------------------
-# UART0 @ 1 Mbaud. Remap via SliderPins if needed.
+# UART0 @ 115200 baud. Remap via SliderPins if needed.
 PIN_UART_TX = 16
 PIN_UART_RX = 17
-UART_BAUD = 1_000_000
+UART_BAUD = 115_200
 
 # ---------------------------------------------------------------------------
 # Motion floor (UIC command clamp; planner ceilings live on MC)
