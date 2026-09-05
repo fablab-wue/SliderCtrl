@@ -129,7 +129,7 @@ async def main():
     mc = MC_Client()
     ui = UIC_Base()
 
-    mc.set_status_callback(ui.on_status)
+    mc.set_axis_status_callback(ui.on_axis_status)
     await mc.start()
     await ui.start()
 
@@ -149,7 +149,7 @@ async def main():
 asyncio.run(main())
 ```
 
-**Optional 2-axis** (typical **axis 1 = linear**, **axis 2 = pan**): dual `MT`/`M` is [time-synced](https://github.com/fablab-wue/SliderDoc/blob/main/mc/dual-movement.md), not CNC. `mc.axis_count` / `getAxisCount()` come from CG `axis2_use` (not live `IA`). Shipping panels keep `set_status_callback` (5-arg, axis 1) even on a 2-axis MC. Custom 2-axis UIs register `set_status2_callback` (9-arg) and use `moveTo(pos, pos2)`, `moveTo(None, pos2)` → `MT _ pos2`, `home(2)`.
+**Optional 2-axis** (typical **axis 1 = linear**, **axis 2 = pan**): dual `MT`/`M` is [time-synced](https://github.com/fablab-wue/SliderDoc/blob/main/mc/dual-movement.md), not CNC. `mc.axis_count` / `getAxisCount()` come from CG `axis2_use` (not live `IA`). Verbose `#…` is one line: axis-1 fields, then ` | ` and the same 1-axis schema for axis 2 (`#M 12.5 25 0 100 | 67.8 5 25 90`). Panels register `set_axis_status_callback` (`cb(axis, state, pos, speed, accel, dest)`); `UIC_Base` uses axis 1 for OLED/LED. Use `moveTo(pos, pos2)`, `moveTo(None, pos2)` → `MT _ pos2`, `home(2)`.
 
 | Idea | Entry point |
 |------|-------------|
@@ -178,7 +178,8 @@ Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for
 
 **B4Slider**
 
-- 4 buttons · RGB LED · SPEED pot · (optional) ACCEL pot · no OLED required
+- 4 buttons (1-axis) or 6 buttons with optional *MOVE_L2/R2* on GP8/GP9 when SliderMC `axis2_use=1`
+- RGB LED · SPEED pot · (optional) ACCEL pot · boot homing axis 1 then axis 2 · no OLED required
 
 ---
 

@@ -1,6 +1,6 @@
 # UIC_base — OLED / RGB / camera / WDT on the UIC (MicroPython + uasyncio).
 #
-# Compose with MC_Client: mc.set_status_callback(ui.on_status).
+# Compose with MC_Client: mc.set_axis_status_callback(ui.on_axis_status).
 # No inheritance from the motion client — apps instantiate both.
 
 import sys
@@ -121,7 +121,7 @@ class UIC_Base:
                 dbg(1, "NeoPixel init fail", exc)
                 self._neo_sm = None
 
-        # Mirrors for OLED/LED (from on_status + app setters).
+        # Mirrors for OLED/LED (from on_axis_status + app setters).
         self._speed_mm_s = None
         self._accel_mm_s2 = None
         self._soft_min = None
@@ -228,10 +228,16 @@ class UIC_Base:
         self._drive_led()
         self._update_oled(force=True)
 
-    # --- on_status: OLED + LED ---------------------------------------------
+    # --- on_axis_status: OLED + LED ----------------------------------------
 
-    def on_status(self, state, pos, speed, accel, target):
-        """MC_Client status callback — updates OLED and RGB LED."""
+    def on_axis_status(self, axis, state, pos, speed, accel, dest):
+        """MC_Client per-axis `#…` callback — OLED/LED use axis 1."""
+        try:
+            axis = int(axis)
+        except (TypeError, ValueError):
+            return
+        if axis != 1:
+            return
         self._state = state
         self._moving = state in ("M", "A", "B", "H")
         self._homing = state == "H"
@@ -250,7 +256,7 @@ class UIC_Base:
             self._act_vel_mm_s = float(speed)
         elif state in ("I", "D", "L", "E"):
             self._act_vel_mm_s = 0.0
-        self._target_mm = target
+        self._target_mm = dest
 
         if accel is not None:
             self._act_acc_mm_s2 = float(accel)

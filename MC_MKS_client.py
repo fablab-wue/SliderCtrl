@@ -79,7 +79,7 @@ class MC_MKS_Client:
         self._motion_task = None
         self._cmd_seq = 0
 
-        self._status_cb = None
+        self._axis_status_cb = None
         self._error_cb = None
         self._answer_cb = None
 
@@ -125,9 +125,12 @@ class MC_MKS_Client:
 
     # --- callbacks ---------------------------------------------------------
 
-    def set_status_callback(self, cb):
-        """Register cb(state, pos, speed, accel, target) (~STATUS_HZ)."""
-        self._status_cb = cb
+    def set_axis_status_callback(self, cb):
+        """Register cb(axis, state, pos, speed, accel, dest) (~STATUS_HZ).
+
+        MKS is 1-axis; ``axis`` is always 1.
+        """
+        self._axis_status_cb = cb
 
     def set_error_callback(self, cb):
         """Register cb(code, text) for stall / bus errors."""
@@ -142,10 +145,10 @@ class MC_MKS_Client:
         if cb is not None:
             cb(code, text)
 
-    def on_status(self, state, pos, speed, accel, target):
-        cb = self._status_cb
+    def on_axis_status(self, axis, state, pos, speed, accel, dest):
+        cb = self._axis_status_cb
         if cb is not None:
-            cb(state, pos, speed, accel, target)
+            cb(axis, state, pos, speed, accel, dest)
 
     def on_answer(self, command, answer):
         cb = self._answer_cb
@@ -840,7 +843,8 @@ class MC_MKS_Client:
             if self._decelerating:
                 accel_out = -accel_out
 
-        self.on_status(
+        self.on_axis_status(
+            1,
             letter,
             self._pos_mm,
             self._act_vel_mm_s,

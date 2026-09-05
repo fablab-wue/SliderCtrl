@@ -784,7 +784,7 @@ def _status_oled_text(
 async def main():
     mc = MC_Client()
     ui = UIC_Base()
-    mc.set_status_callback(ui.on_status)
+    mc.set_axis_status_callback(ui.on_axis_status)
     await mc.start()
     await ui.start()
     # Ceilings / soft limits from MC CG (MC_Client.fetchConfig); no boot CS.

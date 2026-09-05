@@ -169,7 +169,7 @@ JKS_BOOT_TEXT = "JKSlider V1 by JK"
 JKS_BOOT_SPLASH_MS = 2000
 # Require OPTION or STOP before first enable/homing (security). Rainbow while locked.
 JKS_BOOT_UNLOCK = True
-# True: home at boot and via STOP+A. False: treat power-up position as 0; SW_HOME still hard-limits.
+# True: home at boot and via STOP+A. False: treat power-up as 0 (MC `SP`); no dedicated home switch.
 JKS_HOMING_ENABLED = True
 
 # Status LED panel effects (UIC_Base ledPingPong / ledAddColor / ledFlash)

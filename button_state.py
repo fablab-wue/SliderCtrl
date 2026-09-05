@@ -38,6 +38,18 @@ class MoveSemanticState:
     hold_to_run: bool = False
 
 
+@dataclass
+class DualChordSemanticState:
+    """Chord-aware semantics for L+L2 / R+R2 (2-axis builds)."""
+
+    direction: int = 0
+    chord_active: bool = False
+    dual_hold_to_run: bool = False
+    dual_short_release_latched: bool = False
+    suppress_lane1: bool = False
+    suppress_lane2: bool = False
+
+
 class ButtonAdapter:
     """Wrap a raw button provider into the shared button-state interface.
 
@@ -166,6 +178,131 @@ def _last_motion_dir(btn_a, btn_b, tap_ms):
     if btn_b.pressed() and not btn_a.pressed():
         return 1
     return 0
+
+
+def dual_move_chord(l, r, l2, r2):
+    """Return -1 for L+L2, +1 for R+R2, else 0."""
+    if l.pressed() and not r.pressed() and l2.pressed() and not r2.pressed():
+        return -1
+    if r.pressed() and not l.pressed() and r2.pressed() and not l2.pressed():
+        return 1
+    return 0
+
+
+class DualChordTracker:
+    """Chord assembly: dual hold timer starts when the 2nd button joins."""
+
+    def __init__(self, tap_ms=333):
+        self.tap_ms = int(tap_ms)
+        self._dir = 0
+        self._first_ms = None
+        self._complete_ms = None
+        self._partner_joined = False
+
+    def reset(self):
+        self._dir = 0
+        self._first_ms = None
+        self._complete_ms = None
+        self._partner_joined = False
+
+    def update(self, l, r, l2, r2, now_ms=None):
+        if now_ms is None:
+            now_ms = time.ticks_ms()
+
+        dual_short = False
+        dual_hold = False
+        latch_dir = 0
+        chord_dir = dual_move_chord(l, r, l2, r2)
+
+        if l.edge_press and not r.pressed() and not l2.pressed():
+            self._dir = -1
+            self._first_ms = now_ms
+            self._complete_ms = None
+            self._partner_joined = False
+        elif r.edge_press and not l.pressed() and not r2.pressed():
+            self._dir = 1
+            self._first_ms = now_ms
+            self._complete_ms = None
+            self._partner_joined = False
+        elif l2.edge_press and not r2.pressed() and not l.pressed():
+            self._dir = -1
+            self._first_ms = now_ms
+            self._complete_ms = None
+            self._partner_joined = False
+        elif r2.edge_press and not l2.pressed() and not r.pressed():
+            self._dir = 1
+            self._first_ms = now_ms
+            self._complete_ms = None
+            self._partner_joined = False
+
+        if l2.edge_press and l.pressed() and not r.pressed():
+            self._partner_joined = True
+            self._complete_ms = now_ms
+            self._dir = -1
+        elif l.edge_press and l2.pressed() and not r.pressed():
+            self._partner_joined = True
+            self._complete_ms = now_ms
+            self._dir = -1
+        elif r2.edge_press and r.pressed() and not l.pressed():
+            self._partner_joined = True
+            self._complete_ms = now_ms
+            self._dir = 1
+        elif r.edge_press and r2.pressed() and not l.pressed():
+            self._partner_joined = True
+            self._complete_ms = now_ms
+            self._dir = 1
+
+        if chord_dir != 0 and self._complete_ms is not None:
+            if time.ticks_diff(now_ms, self._complete_ms) >= self.tap_ms:
+                dual_hold = True
+
+        if self._partner_joined and self._first_ms is not None and chord_dir == 0:
+            left_released = (
+                self._dir < 0 and not l.pressed() and not l2.pressed()
+            )
+            right_released = (
+                self._dir > 0 and not r.pressed() and not r2.pressed()
+            )
+            any_edge = (
+                l.edge_release
+                or l2.edge_release
+                or r.edge_release
+                or r2.edge_release
+            )
+            if any_edge and (left_released or right_released):
+                if time.ticks_diff(now_ms, self._first_ms) <= self.tap_ms:
+                    dual_short = True
+                    latch_dir = self._dir
+                self.reset()
+
+        if (
+            not l.pressed()
+            and not r.pressed()
+            and not l2.pressed()
+            and not r2.pressed()
+            and not dual_short
+        ):
+            self.reset()
+
+        suppress_lane1 = (l.pressed() and (l2.pressed() or self._partner_joined)) or (
+            r.pressed() and (r2.pressed() or self._partner_joined)
+        )
+        suppress_lane2 = (l2.pressed() and (l.pressed() or self._partner_joined)) or (
+            r2.pressed() and (r.pressed() or self._partner_joined)
+        )
+
+        out_dir = chord_dir
+        if dual_short:
+            out_dir = latch_dir
+
+        return DualChordSemanticState(
+            direction=out_dir,
+            chord_active=chord_dir != 0,
+            dual_hold_to_run=dual_hold and chord_dir != 0,
+            dual_short_release_latched=dual_short,
+            suppress_lane1=suppress_lane1,
+            suppress_lane2=suppress_lane2,
+        )
 
 
 def resolve_move_semantics(left, right, option_active, tap_ms=333):

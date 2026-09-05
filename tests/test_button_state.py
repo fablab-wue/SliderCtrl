@@ -129,6 +129,72 @@ class TestButtonState(unittest.TestCase):
             "stop",
         )
 
+    def test_dual_move_chord_detection(self):
+        l = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        r = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        l2 = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        r2 = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        l.update(True)
+        l2.update(True)
+        self.assertEqual(button_state.dual_move_chord(l, r, l2, r2), -1)
+        l.update(False)
+        l2.update(False)
+        r.update(True)
+        r2.update(True)
+        self.assertEqual(button_state.dual_move_chord(l, r, l2, r2), 1)
+
+    def test_dual_chord_no_early_hold_while_assembling(self):
+        l = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        r = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        l2 = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        r2 = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        tracker = button_state.DualChordTracker(tap_ms=333)
+
+        self._advance(10)
+        l.update(True)
+        sem = tracker.update(l, r, l2, r2, self._now)
+        self.assertFalse(sem.dual_hold_to_run)
+        self.assertFalse(sem.suppress_lane1)
+
+        self._advance(200)
+        l.update(True)
+        l2.update(True)
+        sem = tracker.update(l, r, l2, r2, self._now)
+        self.assertFalse(sem.dual_hold_to_run)
+        self.assertTrue(sem.chord_active)
+
+        self._advance(340)
+        l.update(True)
+        l2.update(True)
+        sem = tracker.update(l, r, l2, r2, self._now)
+        self.assertTrue(sem.dual_hold_to_run)
+
+    def test_dual_chord_short_latch(self):
+        l = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        r = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        l2 = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        r2 = button_state.ButtonState(debounce_ms=0, long_ms=1000)
+        tracker = button_state.DualChordTracker(tap_ms=333)
+
+        self._advance(10)
+        l.update(True)
+        tracker.update(l, r, l2, r2, self._now)
+        self._advance(100)
+        l2.update(True)
+        tracker.update(l, r, l2, r2, self._now)
+        self._advance(50)
+        l.update(False)
+        self._advance(20)
+        l.update(False)
+        tracker.update(l, r, l2, r2, self._now)
+        self._advance(20)
+        l2.update(False)
+        self._advance(20)
+        l2.update(False)
+        sem = tracker.update(l, r, l2, r2, self._now)
+        self.assertTrue(sem.dual_short_release_latched)
+        self.assertEqual(sem.direction, -1)
+
 
 if __name__ == "__main__":
     unittest.main()

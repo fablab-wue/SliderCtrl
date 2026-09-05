@@ -1,6 +1,7 @@
-# B4Slider — 4-button camera slider panel (MOVE_L/R, OPTION, SET + SPEED pot).
+# B4Slider — 4/6-button camera slider panel (MOVE_L/R, optional MOVE_L2/R2,
+# OPTION, SET + SPEED pot).
 #
-# Soft limits are the A/B working window. Reuses MC_Client + UIC_Base.
+# Soft limits are the A/B working window per axis. Reuses MC_Client + UIC_Base.
 # Config: B4SliderConfig.py (B4S_*); overlay via SliderPins.B4Slider.
 #
 # Usage:
@@ -12,21 +13,28 @@ import time
 import uasyncio as asyncio
 from machine import ADC, Pin
 
-import MC_config as config
 import B4SliderConfig as b4s
 from MC_client import MC_Client
 from UIC_base import UIC_Base, dbg
-from button_state import ButtonAdapter, allow_move_out_of_soft_limit, resolve_move_semantics
+from button_state import (
+    ButtonAdapter,
+    DualChordTracker,
+    allow_move_out_of_soft_limit,
+    dual_move_chord,
+    resolve_move_semantics,
+)
 
 _IDLE = 0
 _CRUISE = 1
 _HOLD = 2
+_HOMING = 3
 
 _WHITE = (255, 255, 255)
 _VIOLET = (180, 0, 255)
 _RED = (255, 0, 0)
 _DIM_WHITE = (31, 31, 31)
 _DIM_BLUE = (0, 0, 80)
+_SKIP = "_"
 
 
 class _Btn:
@@ -123,6 +131,30 @@ class _Btn:
                 self.long_press = True
 
 
+class _AxisLane:
+    """One MOVE_L/R pair and its soft-limit window."""
+
+    def __init__(self, move_l, move_r, left_neg):
+        self.move_l = move_l
+        self.move_r = move_r
+        self.left_neg = bool(left_neg)
+
+    def dir_from_buttons(self):
+        if self.move_l.pressed() and not self.move_r.pressed():
+            return -1
+        if self.move_r.pressed() and not self.move_l.pressed():
+            return 1
+        return 0
+
+    def target_for_dir(self, direction, soft_l, soft_r):
+        if self.left_neg:
+            return soft_l if direction < 0 else soft_r
+        return soft_r if direction < 0 else soft_l
+
+    def swap_lr(self):
+        self.move_l, self.move_r = self.move_r, self.move_l
+
+
 class _PotFilter:
     def __init__(self, samples, alpha, hyst):
         self._n = max(1, int(samples))
@@ -182,6 +214,14 @@ def _read_accel(filt, adc, lo, hi):
     return lo + norm * (hi - lo)
 
 
+def _sync_ratio(pos1, tgt1, pos2, tgt2):
+    d1 = abs(float(tgt1) - float(pos1))
+    d2 = abs(float(tgt2) - float(pos2))
+    if d1 < 1e-6:
+        return 1.0
+    return d2 / d1
+
+
 async def _wait_boot_unlock(ui, btn_option, update_all):
     dbg(3, "B4S locked")
     ui.startLedRainbowLoop()
@@ -197,6 +237,20 @@ async def _wait_boot_unlock(ui, btn_option, update_all):
         ui.stopLedEffect()
 
 
+async def _run_homing(mc, ui, axes):
+    dbg(3, "B4S homing", axes)
+    for axis in axes:
+        mc.home(axis)
+        while mc.isMoving() or mc.isHoming():
+            await asyncio.sleep_ms(20)
+        if mc.isDRVErrorActive():
+            ui.ledFlash(_RED, 2, 80, 80)
+            dbg(2, "B4S homing abort", axis)
+            return False
+    dbg(3, "B4S homed")
+    return True
+
+
 def run():
     try:
         asyncio.run(main())
@@ -210,11 +264,10 @@ def run():
 async def main():
     mc = MC_Client()
     ui = UIC_Base()
-    mc.set_status_callback(ui.on_status)
+    mc.set_axis_status_callback(ui.on_axis_status)
     await mc.start()
     await ui.start()
 
-    # Near soft distance for shared UIC mix
     near_mm = float(getattr(b4s, "B4S_NEAR_SOFT_MM", 3.0))
     try:
         import UIC_config as uic_cfg
@@ -228,6 +281,7 @@ async def main():
     extra_ms = int(b4s.B4S_EXTRA_LONG_MS)
     learn_ms = int(b4s.B4S_LEARN_HOLD_MS)
     move_tap_ms = int(b4s.B4S_MOVE_TAP_MS)
+    chord_tap_ms = int(getattr(b4s, "B4S_CHORD_TAP_MS", move_tap_ms))
 
     move_l_pin = Pin(b4s.PIN_BTN_MOVE_L, Pin.IN, Pin.PULL_UP)
     move_r_pin = Pin(b4s.PIN_BTN_MOVE_R, Pin.IN, Pin.PULL_UP)
@@ -238,16 +292,38 @@ async def main():
     btn_option = ButtonAdapter(lambda: option_pin.value() == 0, debounce, long_ms, extra_ms)
     btn_set = _Btn(b4s.PIN_BTN_SET, debounce, long_ms, extra_ms, learn_ms)
 
+    axis2 = mc.getAxisCount() >= 2
+    move_l2 = None
+    move_r2 = None
+    if axis2:
+        l2_pin = Pin(b4s.PIN_BTN_MOVE_L2, Pin.IN, Pin.PULL_UP)
+        r2_pin = Pin(b4s.PIN_BTN_MOVE_R2, Pin.IN, Pin.PULL_UP)
+        move_l2 = ButtonAdapter(lambda: l2_pin.value() == 0, debounce, long_ms, extra_ms)
+        move_r2 = ButtonAdapter(lambda: r2_pin.value() == 0, debounce, long_ms, extra_ms)
+
+    lane1 = _AxisLane(move_l, move_r, b4s.B4S_LEFT_IS_NEGATIVE)
+    lane2 = None
+    if axis2:
+        lane2 = _AxisLane(
+            move_l2,
+            move_r2,
+            getattr(b4s, "B4S_LEFT2_IS_NEGATIVE", b4s.B4S_LEFT_IS_NEGATIVE),
+        )
+
+    chord_tracker = DualChordTracker(chord_tap_ms) if axis2 else None
+
     def update_all():
         move_l.update()
         move_r.update()
         btn_option.update()
         btn_set.update()
+        if axis2:
+            move_l2.update()
+            move_r2.update()
 
     if getattr(b4s, "B4S_BOOT_UNLOCK", True):
         await _wait_boot_unlock(ui, btn_option, update_all)
 
-    # Panel ceilings
     speed_max = float(b4s.B4S_SPEED_MAX_MM_S)
     accel_max = float(b4s.B4S_ACCEL_MAX_MM_S2)
     if mc.max_speed is not None and mc.max_speed < speed_max:
@@ -260,18 +336,57 @@ async def main():
 
     slider_min = mc.slider_min if mc.slider_min is not None else 0.0
     slider_max = mc.slider_max if mc.slider_max is not None else 600.0
+    slider_min_2 = mc.slider_min_2 if mc.slider_min_2 is not None else 0.0
+    slider_max_2 = mc.slider_max_2 if mc.slider_max_2 is not None else 600.0
+
     soft_l = float(slider_min)
     soft_r = float(slider_max)
+    soft_l2 = float(slider_min_2)
+    soft_r2 = float(slider_max_2)
+    axis2_left_set = False
+    axis2_right_set = False
+
+    def axis2_window_defined():
+        return axis2_left_set and axis2_right_set
 
     def apply_soft_limits():
-        """Push the A/B working window to MC session SL/SR (not CS slider_min)."""
-        nonlocal soft_l, soft_r
+        nonlocal soft_l, soft_r, soft_l2, soft_r2
         if soft_l > soft_r:
             soft_l, soft_r = soft_r, soft_l
-        mc.setSoftLimits(soft_l, soft_r)
+        if soft_l2 > soft_r2:
+            soft_l2, soft_r2 = soft_r2, soft_l2
+        if axis2:
+            mc.setSoftLimits(soft_l, soft_r, soft_l2, soft_r2)
+        else:
+            mc.setSoftLimits(soft_l, soft_r)
         ui.set_soft_limits(soft_l, soft_r)
 
     apply_soft_limits()
+
+    if getattr(b4s, "B4S_HOMING_ENABLED", True):
+        homing_axes = [1]
+        if axis2:
+            homing_axes.append(2)
+        mode = _HOMING
+        ok = await _run_homing(mc, ui, homing_axes)
+        if ok:
+            slider_min = mc.slider_min if mc.slider_min is not None else slider_min
+            slider_max = mc.slider_max if mc.slider_max is not None else slider_max
+            if axis2:
+                slider_min_2 = (
+                    mc.slider_min_2 if mc.slider_min_2 is not None else slider_min_2
+                )
+                slider_max_2 = (
+                    mc.slider_max_2 if mc.slider_max_2 is not None else slider_max_2
+                )
+                soft_l2 = float(slider_min_2)
+                soft_r2 = float(slider_max_2)
+            soft_l = float(slider_min)
+            soft_r = float(slider_max)
+            apply_soft_limits()
+        mode = _IDLE
+    else:
+        mode = _IDLE
 
     use_accel_pot = int(getattr(b4s, "B4S_USE_ACCEL_POT", 0)) != 0
     accel_preset = "L"
@@ -280,15 +395,23 @@ async def main():
     accel_cmd = accel_l
 
     loop_armed = False
-    mode = _IDLE
-    cruise_dir = 0  # -1 L, +1 R
+    cruise_dir = 0
     cruise_locked = False
     option_boost = False
+    dual_active = False
+    dual_parallel = False
+    dual_dir = 0
+    dual_locked = False
+    sync_ratio = 1.0
     set_tick_sec = 0
     learn_active = False
     swap_lr = False
+    swap_l2r2 = False
     move_swap_since = None
     move_swap_fired = False
+    move_swap2_since = None
+    move_swap2_fired = False
+    driver_enabled = True
 
     adc_speed = ADC(Pin(b4s.PIN_POT_SPEED))
     filt_speed = _PotFilter(
@@ -306,27 +429,20 @@ async def main():
 
     pot_min = float(b4s.B4S_SPEED_MIN_MM_S)
     accel_lo = float(b4s.B4S_ACCEL_MIN_MM_S2)
-
-    left_neg = bool(b4s.B4S_LEFT_IS_NEGATIVE)
     loop_blue = int(getattr(b4s, "B4S_LOOP_BLUE_ADD", 26))
+    sync_blue = int(getattr(b4s, "B4S_SYNC_BLUE_ADD", 26))
     flash_on = int(b4s.B4S_LED_FLASH_ON_MS)
     flash_off = int(b4s.B4S_LED_FLASH_OFF_MS)
     blip_ms = int(b4s.B4S_LED_BLIP_MS)
     ping_ms = int(b4s.B4S_LED_PINGPONG_MS)
-    driver_enabled = True
+    speed_mm_s = pot_min
 
-    def target_for_dir(direction):
-        # direction: -1 toward soft_l (left), +1 toward soft_r (right)
-        if left_neg:
-            return soft_l if direction < 0 else soft_r
-        return soft_r if direction < 0 else soft_l
-
-    def dir_from_buttons():
-        if move_l.pressed() and not move_r.pressed():
-            return -1
-        if move_r.pressed() and not move_l.pressed():
-            return 1
-        return 0
+    def any_move_pressed():
+        if move_l.pressed() or move_r.pressed():
+            return True
+        if axis2 and (move_l2.pressed() or move_r2.pressed()):
+            return True
+        return False
 
     def sync_loop_led():
         if loop_armed and mode == _IDLE and not mc.isMoving():
@@ -335,24 +451,102 @@ async def main():
         elif mc.isMoving() and loop_armed:
             ui.ledEffectClear()
             ui.ledAddColor(0, 0, loop_blue)
+        elif axis2 and axis2_window_defined() and mode == _IDLE and not mc.isMoving():
+            ui.ledClearAdd()
+            ui.ledAddColor(0, 0, sync_blue)
         else:
             if not mc.isMoving():
                 ui.ledClearAdd()
                 ui.ledEffectClear()
 
+    def soft_stop():
+        nonlocal mode, cruise_dir, cruise_locked, option_boost
+        nonlocal dual_active, dual_parallel, dual_dir, dual_locked
+        mc.stop()
+        mode = _IDLE
+        cruise_dir = 0
+        cruise_locked = False
+        option_boost = False
+        dual_active = False
+        dual_parallel = False
+        dual_dir = 0
+        dual_locked = False
+        sync_loop_led()
+
+    def start_axis_cruise(lane, direction, locked, soft_lo, soft_hi, axis_index,
+                          speed_boost=False, accel_boost=False):
+        nonlocal mode, cruise_dir, cruise_locked, option_boost
+        tgt = lane.target_for_dir(direction, soft_lo, soft_hi)
+        spd = speed_max if speed_boost else speed_mm_s
+        acc = accel_max if accel_boost else accel_cmd
+        mc.setSpeed(spd)
+        mc.setAcceleration(acc)
+        mc.enable(True)
+        if axis_index == 1:
+            mc.moveTo(tgt)
+            cruise_dir = direction
+            cruise_locked = locked
+            option_boost = speed_boost
+            mode = _CRUISE if locked else _HOLD
+        else:
+            mc.moveTo(None, tgt)
+        sync_loop_led()
+
+    def start_dual_cruise(direction, locked, speed_boost=False, accel_boost=False):
+        nonlocal mode, dual_active, dual_parallel, dual_dir, dual_locked
+        nonlocal cruise_dir, cruise_locked, option_boost, sync_ratio
+        tgt1 = lane1.target_for_dir(direction, soft_l, soft_r)
+        tgt2 = lane2.target_for_dir(direction, soft_l2, soft_r2)
+        spd = speed_max if speed_boost else speed_mm_s
+        acc = accel_max if accel_boost else accel_cmd
+        mc.setSpeed(spd)
+        mc.setAcceleration(acc)
+        mc.enable(True)
+        if axis2_window_defined():
+            sync_ratio = _sync_ratio(mc.getPosition(), tgt1, mc.getPosition2(), tgt2)
+            mc.moveTo(tgt1, tgt2)
+            dual_active = True
+            dual_parallel = False
+        else:
+            mc.moveTo(tgt1)
+            mc.moveTo(None, tgt2)
+            dual_active = False
+            dual_parallel = True
+        dual_dir = direction
+        dual_locked = locked
+        cruise_dir = direction
+        cruise_locked = locked
+        option_boost = speed_boost
+        mode = _CRUISE if locked else _HOLD
+        sync_loop_led()
+
+    def allow_axis_move(pos, direction, soft_lo, soft_hi):
+        return allow_move_out_of_soft_limit(
+            pos, direction, soft_lo, soft_hi
+        ) or not mc.isAtSoftLimit()
+
     def power_up_reset():
-        nonlocal soft_l, soft_r, loop_armed, mode, cruise_dir
-        nonlocal cruise_locked, accel_preset, accel_cmd, option_boost
-        nonlocal driver_enabled
+        nonlocal soft_l, soft_r, soft_l2, soft_r2, loop_armed, mode
+        nonlocal cruise_dir, cruise_locked, accel_preset, accel_cmd, option_boost
+        nonlocal driver_enabled, axis2_left_set, axis2_right_set
+        nonlocal dual_active, dual_parallel, dual_dir, dual_locked
         mc.halt()
         soft_l = float(slider_min)
         soft_r = float(slider_max)
+        soft_l2 = float(slider_min_2)
+        soft_r2 = float(slider_max_2)
+        axis2_left_set = False
+        axis2_right_set = False
         apply_soft_limits()
         loop_armed = False
         mode = _IDLE
         cruise_dir = 0
         cruise_locked = False
         option_boost = False
+        dual_active = False
+        dual_parallel = False
+        dual_dir = 0
+        dual_locked = False
         driver_enabled = False
         accel_preset = "L"
         accel_cmd = accel_l
@@ -376,35 +570,11 @@ async def main():
             mc.setAcceleration(accel_cmd)
         return accel_cmd
 
-    def start_cruise(direction, locked, speed_boost=False, accel_boost=False):
-        nonlocal mode, cruise_dir, cruise_locked, option_boost
-        cruise_dir = direction
-        cruise_locked = locked
-        option_boost = speed_boost
-        mode = _CRUISE if locked else _HOLD
-        tgt = target_for_dir(direction)
-        spd = speed_max if speed_boost else speed_mm_s
-        acc = accel_max if accel_boost else accel_cmd
-        mc.setSpeed(spd)
-        mc.setAcceleration(acc)
-        mc.enable(True)
-        mc.moveTo(tgt)
-        sync_loop_led()
-
-    def soft_stop():
-        nonlocal mode, cruise_dir, cruise_locked, option_boost
-        mc.stop()
-        mode = _IDLE
-        cruise_dir = 0
-        cruise_locked = False
-        option_boost = False
-        sync_loop_led()
-
     mc.enable(True)
     if not use_accel_pot:
         mc.setAcceleration(accel_cmd)
     ui.set_commanded(speed_mm_s=pot_min, accel_mm_s2=accel_cmd)
-    dbg(3, "B4Slider ready", "soft", soft_l, soft_r)
+    dbg(3, "B4Slider ready", "axis2", axis2, "soft", soft_l, soft_r)
 
     try:
         while True:
@@ -412,9 +582,7 @@ async def main():
 
             speed_mm_s = _read_speed(filt_speed, adc_speed, pot_min, speed_max)
             if use_accel_pot:
-                accel_cmd = _read_accel(
-                    filt_accel, adc_accel, accel_lo, accel_max
-                )
+                accel_cmd = _read_accel(filt_accel, adc_accel, accel_lo, accel_max)
             ui.set_commanded(speed_mm_s=speed_mm_s, accel_mm_s2=accel_cmd)
 
             opt = btn_option.pressed()
@@ -422,15 +590,29 @@ async def main():
             move_sem = resolve_move_semantics(
                 move_l.state, move_r.state, opt, move_tap_ms
             )
-            all_four = (
-                move_l.pressed()
-                and move_r.pressed()
-                and opt
-                and st
-            )
-            lr_halt = move_l.pressed() and move_r.pressed() and not all_four
+            move_sem2 = None
+            chord_sem = None
+            if axis2:
+                move_sem2 = resolve_move_semantics(
+                    move_l2.state, move_r2.state, opt, move_tap_ms
+                )
+                chord_sem = chord_tracker.update(
+                    move_l.state, move_r.state, move_l2.state, move_r2.state
+                )
 
-            # --- 1) All four: panic + power-up reset -----------------------
+            all_four = move_l.pressed() and move_r.pressed() and opt and st
+            lr_halt = move_l.pressed() and move_r.pressed() and not all_four
+            l2r2_halt = (
+                axis2
+                and move_l2.pressed()
+                and move_r2.pressed()
+                and not all_four
+            )
+
+            if mode == _HOMING:
+                await asyncio.sleep_ms(20)
+                continue
+
             if all_four:
                 if (
                     move_l.edge_press
@@ -444,9 +626,11 @@ async def main():
                 await asyncio.sleep_ms(20)
                 continue
 
-            # --- 2) L+R halt ----------------------------------------------
-            if lr_halt:
-                if move_l.edge_press or move_r.edge_press:
+            if lr_halt or l2r2_halt:
+                edge = move_l.edge_press or move_r.edge_press
+                if l2r2_halt:
+                    edge = edge or move_l2.edge_press or move_r2.edge_press
+                if edge:
                     mc.halt()
                     soft_stop()
                     driver_enabled = False
@@ -456,14 +640,16 @@ async def main():
                 await asyncio.sleep_ms(20)
                 continue
 
-            # Re-enable on any button while disabled
             if not driver_enabled:
-                if (
+                edge = (
                     move_l.edge_press
                     or move_r.edge_press
                     or btn_option.edge_press
                     or btn_set.edge_press
-                ):
+                )
+                if axis2:
+                    edge = edge or move_l2.edge_press or move_r2.edge_press
+                if edge:
                     mc.enable(True)
                     driver_enabled = True
                     ui.set_enabled(True)
@@ -471,8 +657,7 @@ async def main():
                 await asyncio.sleep_ms(20)
                 continue
 
-            # --- 3) OPTION+SET (no MOVE): hold>1s loop; short release disable
-            if opt and st and not move_l.pressed() and not move_r.pressed():
+            if opt and st and not any_move_pressed():
                 if btn_set.long_press or btn_option.long_press:
                     loop_armed = not loop_armed
                     sync_loop_led()
@@ -490,7 +675,6 @@ async def main():
                 await asyncio.sleep_ms(20)
                 continue
 
-            # --- MOVE_L + MOVE_R ≥ 3 s → swap direction, like FAST pair ----
             swap_hold_ms = 3000
             if move_l.pressed() and move_r.pressed() and not opt:
                 now = time.ticks_ms()
@@ -503,43 +687,126 @@ async def main():
                 ):
                     move_swap_fired = True
                     swap_lr = not swap_lr
-                    move_l, move_r = move_r, move_l
+                    lane1.swap_lr()
                     ui.ledBlip(_WHITE, blip_ms)
                     dbg(3, "B4S MOVE_SWAP", swap_lr)
             else:
                 move_swap_since = None
                 move_swap_fired = False
 
-            # --- 4/5) SET + MOVE soft limits ------------------------------
-            if st and (move_l.pressed() or move_r.pressed()) and not opt:
-                if move_l.pressed() and move_r.pressed():
-                    if move_l.long_press or move_r.long_press or btn_set.long_press:
-                        soft_l = float(slider_min)
-                        soft_r = float(slider_max)
-                        apply_soft_limits()
-                        ui.ledBlip(_WHITE, blip_ms)
-                        dbg(3, "B4S reset both soft")
-                elif move_l.pressed():
-                    if move_l.long_press or btn_set.long_press:
-                        mc.setLeft()
-                        soft_l = float(slider_min)
-                        ui.set_soft_limits(soft_l, soft_r)
-                        ui.ledBlip(_WHITE, blip_ms)
-                        dbg(3, "B4S reset soft_l")
-                elif move_r.pressed():
-                    if move_r.long_press or btn_set.long_press:
-                        mc.setRight()
-                        soft_r = float(slider_max)
-                        ui.set_soft_limits(soft_l, soft_r)
-                        ui.ledBlip(_WHITE, blip_ms)
-                        dbg(3, "B4S reset soft_r")
-                await asyncio.sleep_ms(20)
-                continue
+            if axis2 and move_l2.pressed() and move_r2.pressed() and not opt:
+                now = time.ticks_ms()
+                if move_swap2_since is None:
+                    move_swap2_since = now
+                    move_swap2_fired = False
+                if (
+                    not move_swap2_fired
+                    and time.ticks_diff(now, move_swap2_since) >= swap_hold_ms
+                ):
+                    move_swap2_fired = True
+                    swap_l2r2 = not swap_l2r2
+                    lane2.swap_lr()
+                    ui.ledBlip(_WHITE, blip_ms)
+                    dbg(3, "B4S MOVE2_SWAP", swap_l2r2)
+            else:
+                move_swap2_since = None
+                move_swap2_fired = False
 
-            # SET+MOVE short: set limit on release of chord
+            # SET + MOVE soft limits
             if st and not opt:
+                if axis2 and (move_l2.pressed() or move_r2.pressed()):
+                    if move_l2.pressed() and move_r2.pressed():
+                        if (
+                            move_l2.long_press
+                            or move_r2.long_press
+                            or btn_set.long_press
+                        ):
+                            soft_l2 = float(slider_min_2)
+                            soft_r2 = float(slider_max_2)
+                            axis2_left_set = False
+                            axis2_right_set = False
+                            mc.setLeft(_SKIP, slider_min_2)
+                            mc.setRight(_SKIP, slider_max_2)
+                            apply_soft_limits()
+                            ui.ledBlip(_WHITE, blip_ms)
+                            dbg(3, "B4S reset both soft2")
+                    elif move_l2.pressed():
+                        if move_l2.long_press or btn_set.long_press:
+                            soft_l2 = float(slider_min_2)
+                            axis2_left_set = False
+                            mc.setLeft(_SKIP, slider_min_2)
+                            ui.ledBlip(_WHITE, blip_ms)
+                            dbg(3, "B4S reset soft_l2")
+                    elif move_r2.pressed():
+                        if move_r2.long_press or btn_set.long_press:
+                            soft_r2 = float(slider_max_2)
+                            axis2_right_set = False
+                            mc.setRight(_SKIP, slider_max_2)
+                            ui.ledBlip(_WHITE, blip_ms)
+                            dbg(3, "B4S reset soft_r2")
+                    await asyncio.sleep_ms(20)
+                    continue
+
+                if move_l.pressed() or move_r.pressed():
+                    if move_l.pressed() and move_r.pressed():
+                        if move_l.long_press or move_r.long_press or btn_set.long_press:
+                            soft_l = float(slider_min)
+                            soft_r = float(slider_max)
+                            if axis2:
+                                mc.setLeft(slider_min, _SKIP)
+                                mc.setRight(slider_max, _SKIP)
+                            else:
+                                mc.setLeft(slider_min)
+                                mc.setRight(slider_max)
+                            apply_soft_limits()
+                            ui.ledBlip(_WHITE, blip_ms)
+                            dbg(3, "B4S reset both soft")
+                    elif move_l.pressed():
+                        if move_l.long_press or btn_set.long_press:
+                            soft_l = float(slider_min)
+                            if axis2:
+                                mc.setLeft(slider_min, _SKIP)
+                            else:
+                                mc.setLeft(slider_min)
+                            ui.set_soft_limits(soft_l, soft_r)
+                            ui.ledBlip(_WHITE, blip_ms)
+                            dbg(3, "B4S reset soft_l")
+                    elif move_r.pressed():
+                        if move_r.long_press or btn_set.long_press:
+                            soft_r = float(slider_max)
+                            if axis2:
+                                mc.setRight(slider_max, _SKIP)
+                            else:
+                                mc.setRight(slider_max)
+                            ui.set_soft_limits(soft_l, soft_r)
+                            ui.ledBlip(_WHITE, blip_ms)
+                            dbg(3, "B4S reset soft_r")
+                    await asyncio.sleep_ms(20)
+                    continue
+
+                if move_l2 and move_l2.short_press and btn_set.last_hold_ms < long_ms:
+                    soft_l2 = mc.getPosition2()
+                    axis2_left_set = True
+                    mc.setLeft(_SKIP, soft_l2)
+                    apply_soft_limits()
+                    ui.ledBlip(_WHITE, blip_ms)
+                    dbg(3, "B4S set soft_l2", soft_l2)
+                    await asyncio.sleep_ms(20)
+                    continue
+                if move_r2 and move_r2.short_press and btn_set.last_hold_ms < long_ms:
+                    soft_r2 = mc.getPosition2()
+                    axis2_right_set = True
+                    mc.setRight(_SKIP, soft_r2)
+                    apply_soft_limits()
+                    ui.ledBlip(_WHITE, blip_ms)
+                    dbg(3, "B4S set soft_r2", soft_r2)
+                    await asyncio.sleep_ms(20)
+                    continue
+
                 if move_l.short_press and btn_set.last_hold_ms < long_ms:
                     soft_l = mc.getPosition()
+                    if axis2:
+                        mc.setLeft(soft_l, _SKIP)
                     apply_soft_limits()
                     ui.ledBlip(_WHITE, blip_ms)
                     dbg(3, "B4S set soft_l", soft_l)
@@ -547,17 +814,15 @@ async def main():
                     continue
                 if move_r.short_press and btn_set.last_hold_ms < long_ms:
                     soft_r = mc.getPosition()
+                    if axis2:
+                        mc.setRight(soft_r, _SKIP)
                     apply_soft_limits()
                     ui.ledBlip(_WHITE, blip_ms)
                     dbg(3, "B4S set soft_r", soft_r)
                     await asyncio.sleep_ms(20)
                     continue
 
-            # --- SET alone ------------------------------------------------
-            # Timed preset state machine: 1 s = L, 3 s = H, 5 s = learn.
-            # Learn mode uses the SPEED pot as the live accel value until release,
-            # then it latches into the current preset slot.
-            if st and not opt and not move_l.pressed() and not move_r.pressed():
+            if st and not opt and not any_move_pressed():
                 if mc.isMoving() or mode != _IDLE:
                     if btn_set.edge_press:
                         soft_stop()
@@ -597,7 +862,6 @@ async def main():
                 await asyncio.sleep_ms(20)
                 continue
 
-            # --- Motion ---------------------------------------------------
             moving = mc.isMoving() or mode in (_CRUISE, _HOLD)
 
             if moving and mode in (_CRUISE, _HOLD):
@@ -615,61 +879,152 @@ async def main():
             if mode == _CRUISE and cruise_locked and not mc.isMoving():
                 if loop_armed:
                     cruise_dir = -cruise_dir
-                    start_cruise(
-                        cruise_dir,
-                        True,
-                        speed_boost=(option_boost or opt),
-                        accel_boost=False,
-                    )
+                    if dual_active or dual_parallel:
+                        start_dual_cruise(
+                            cruise_dir,
+                            True,
+                            speed_boost=(option_boost or opt),
+                        )
+                    else:
+                        start_axis_cruise(
+                            lane1,
+                            cruise_dir,
+                            True,
+                            soft_l,
+                            soft_r,
+                            1,
+                            speed_boost=(option_boost or opt),
+                        )
                 else:
                     soft_stop()
 
             if mode == _HOLD:
-                d = dir_from_buttons()
-                if d == 0 or d != cruise_dir:
-                    soft_stop()
+                if dual_active or dual_parallel:
+                    chord = dual_move_chord(
+                        move_l, move_r, move_l2, move_r2
+                    ) if axis2 else 0
+                    if chord == 0 or chord != dual_dir:
+                        soft_stop()
+                else:
+                    d = lane1.dir_from_buttons()
+                    if d == 0 or d != cruise_dir:
+                        d2 = lane2.dir_from_buttons() if lane2 else 0
+                        if d2 == 0:
+                            soft_stop()
 
-            if moving and mode == _CRUISE and cruise_locked:
+            if moving and mode == _CRUISE and cruise_locked and not dual_active:
                 if move_l.short_press:
                     if cruise_dir < 0:
                         soft_stop()
                     else:
-                        start_cruise(-1, True, opt)
+                        start_axis_cruise(lane1, -1, True, soft_l, soft_r, 1, opt)
                 elif move_r.short_press:
                     if cruise_dir > 0:
                         soft_stop()
                     else:
-                        start_cruise(1, True, opt)
+                        start_axis_cruise(lane1, 1, True, soft_l, soft_r, 1, opt)
 
             if mode == _IDLE and not moving:
+                if axis2 and chord_sem:
+                    if chord_sem.dual_short_release_latched and not st:
+                        d = chord_sem.direction
+                        if allow_axis_move(
+                            mc.getPosition(), d, soft_l, soft_r
+                        ) and allow_axis_move(
+                            mc.getPosition2(), d, soft_l2, soft_r2
+                        ):
+                            start_dual_cruise(
+                                d,
+                                True,
+                                speed_boost=False,
+                                accel_boost=bool(opt),
+                            )
+                            dbg(3, "B4S dual latch", d)
+                    elif chord_sem.dual_hold_to_run and not st:
+                        d = chord_sem.direction
+                        if allow_axis_move(
+                            mc.getPosition(), d, soft_l, soft_r
+                        ) and allow_axis_move(
+                            mc.getPosition2(), d, soft_l2, soft_r2
+                        ):
+                            start_dual_cruise(
+                                d,
+                                False,
+                                speed_boost=bool(opt),
+                            )
+                            dbg(3, "B4S dual hold", d)
+
                 if move_sem.short_release_latched and not st:
-                    if allow_move_out_of_soft_limit(
-                        mc.getPosition(), move_sem.direction, soft_l, soft_r
-                    ) or not mc.isAtSoftLimit():
-                        start_cruise(
-                            move_sem.direction,
-                            True,
-                            speed_boost=False,
-                            accel_boost=bool(move_sem.boost),
-                        )
-                        dbg(
-                            3,
-                            "B4S cruise lock",
-                            move_sem.direction,
-                            "boost",
-                            move_sem.boost,
-                        )
+                    if not (axis2 and chord_sem and chord_sem.suppress_lane1):
+                        if allow_axis_move(
+                            mc.getPosition(), move_sem.direction, soft_l, soft_r
+                        ):
+                            start_axis_cruise(
+                                lane1,
+                                move_sem.direction,
+                                True,
+                                soft_l,
+                                soft_r,
+                                1,
+                                speed_boost=False,
+                                accel_boost=bool(move_sem.boost),
+                            )
+                            dbg(3, "B4S cruise lock", move_sem.direction)
+
                 if move_sem.hold_to_run and not st:
-                    if allow_move_out_of_soft_limit(
-                        mc.getPosition(), move_sem.direction, soft_l, soft_r
-                    ) or not mc.isAtSoftLimit():
-                        start_cruise(
-                            move_sem.direction,
-                            False,
-                            speed_boost=bool(opt),
-                            accel_boost=False,
-                        )
-                        dbg(3, "B4S cruise hold", move_sem.direction)
+                    if not (axis2 and chord_sem and chord_sem.suppress_lane1):
+                        if allow_axis_move(
+                            mc.getPosition(), move_sem.direction, soft_l, soft_r
+                        ):
+                            start_axis_cruise(
+                                lane1,
+                                move_sem.direction,
+                                False,
+                                soft_l,
+                                soft_r,
+                                1,
+                                speed_boost=bool(opt),
+                            )
+                            dbg(3, "B4S cruise hold", move_sem.direction)
+
+                if axis2 and move_sem2 and move_sem2.short_release_latched and not st:
+                    if not chord_sem.suppress_lane2:
+                        if allow_axis_move(
+                            mc.getPosition2(),
+                            move_sem2.direction,
+                            soft_l2,
+                            soft_r2,
+                        ):
+                            start_axis_cruise(
+                                lane2,
+                                move_sem2.direction,
+                                True,
+                                soft_l2,
+                                soft_r2,
+                                2,
+                                speed_boost=False,
+                                accel_boost=bool(move_sem2.boost),
+                            )
+                            dbg(3, "B4S cruise lock2", move_sem2.direction)
+
+                if axis2 and move_sem2 and move_sem2.hold_to_run and not st:
+                    if not chord_sem.suppress_lane2:
+                        if allow_axis_move(
+                            mc.getPosition2(),
+                            move_sem2.direction,
+                            soft_l2,
+                            soft_r2,
+                        ):
+                            start_axis_cruise(
+                                lane2,
+                                move_sem2.direction,
+                                False,
+                                soft_l2,
+                                soft_r2,
+                                2,
+                                speed_boost=bool(opt),
+                            )
+                            dbg(3, "B4S cruise hold2", move_sem2.direction)
 
             sync_loop_led()
             await asyncio.sleep_ms(20)

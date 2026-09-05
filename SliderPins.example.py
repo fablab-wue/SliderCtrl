@@ -191,7 +191,8 @@ JKSlider = {
 # ---------------------------------------------------------------------------
 # Alternative: Waveshare RP2040-Zero as UIC (JKSlider button mode)
 #
-# Pinout: SliderDoc assets/img/rp2040zero_pinout_button.png
+# Pinout: SliderDoc assets/img/JKSlider_rp2040zero_pinout_button.png (JKSlider)
+#          or B4Slider_rp2040zero_pinout_button.png (B4Slider 2-axis)
 #         (`python tools/render_rp2040zero_pinout_SliderMC.py button`)
 #
 # Copy this file to SliderPins.py, then uncomment the three .update() lines
@@ -251,8 +252,12 @@ B4Slider = {
     "PIN_POT_ACCEL": 27,
     "PIN_BTN_MOVE_L": 6,
     "PIN_BTN_MOVE_R": 7,
+    "PIN_BTN_MOVE_L2": 8,
+    "PIN_BTN_MOVE_R2": 9,
     "PIN_BTN_OPTION": 13,
     "PIN_BTN_SET": 5,
+    "B4S_HOMING_ENABLED": True,
+    "B4S_LEFT2_IS_NEGATIVE": True,
     "B4S_USE_ACCEL_POT": 0,
     "B4S_ACCEL_PRESET_L": 100.0,
     "B4S_ACCEL_PRESET_H": 400.0,
