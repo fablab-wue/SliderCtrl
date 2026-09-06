@@ -8,7 +8,7 @@
 
 You bring the rail, motor, and housing. The **firmware and on-set workflow** aim at behaviour comparable to expensive commercial motorized sliders: live retarget, smooth ramps, marks and loops, timelapse, STOP / EMO, and hard-limit homing. **Mechanics quality depends on your build** — the motion stack and panel UX are designed to keep up.
 
-Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/SliderMC)** (STEP/DIR, planner, limits). Docs and manuals live in **[SliderDoc](https://github.com/fablab-wue/SliderDoc)**. Optionally a **second** STEP/DIR axis (typical **slider travel + pan**) is time-synced with the first — enable `axis2_use` on SliderMC; `MC_Client` already speaks both axes.
+Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/SliderMC)** (STEP/DIR, planner, limits). Docs and manuals live in **[SliderDoc](https://github.com/fablab-wue/SliderDoc)**. Optionally extra STEP/DIR axes (typical **slider travel + pan**) are time-synced with the first — `CS axis 2` (or `3`) then `RB`; `MC_Client` already speaks both axes.
 
 > Documentation: [SliderDoc](https://github.com/fablab-wue/SliderDoc)
 
@@ -25,7 +25,7 @@ Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/Slid
 - **Production moves** — Pos A / B / C with power-off recall · pair loops · DELAY walk-ins · TIMELAPSE dividers · pause / resume  
 - **Eyes-off status** — I2C OLED (SSD1306 / SH1106 / SSD1309) · RGB LED · optional NeoPixel (same colours)  
 - **Open stack** — edit `SliderPins.py`, Thonny / REPL workflow · fork the panel or build on `MC_Client` / `UIC_Base` · or use the stack as a **construction kit** for custom 1- or 2-axis rigs  
-- **Optional 2-axis** — linear travel + time-synced pan (or tilt/turn); SliderMC `axis2_use`; `MC_Client` dual `moveTo` / `home`. Shipping JKSlider / B4Slider stay 1-axis faces  
+- **Optional 2-axis** — linear travel + time-synced pan (or tilt/turn); SliderMC `CS axis 2` then `RB`; `MC_Client` dual `moveTo` / `home`. Shipping JKSlider / B4Slider stay 1-axis faces  
 - **Split architecture** — OLED, keypad, and pots never steal STEP timing ([SliderMC](https://github.com/fablab-wue/SliderMC) owns motion)  
 - **Maker-friendly** — upcycle rails and linear units · A4988, DRV8825, TMC, and other STEP/DIR drivers  
 
@@ -149,7 +149,7 @@ async def main():
 asyncio.run(main())
 ```
 
-**Optional 2-axis** (typical **axis 1 = linear**, **axis 2 = pan**): dual `MT`/`M` is [time-synced](https://github.com/fablab-wue/SliderDoc/blob/main/mc/dual-movement.md), not CNC. `mc.axis_count` / `getAxisCount()` come from CG `axis2_use` (not live `IA`). Verbose `#…` is one line: axis-1 fields, then ` | ` and the same 1-axis schema for axis 2 (`#M 12.5 25 0 100 | 67.8 5 25 90`). Panels register `set_axis_status_callback` (`cb(axis, state, pos, speed, accel, dest)`); `UIC_Base` uses axis 1 for OLED/LED. Use `moveTo(pos, pos2)`, `moveTo(None, pos2)` → `MT _ pos2`, `home(2)`.
+**Optional 2-axis** (typical **axis 1 = linear**, **axis 2 = pan**): dual `MT`/`M` is [time-synced](https://github.com/fablab-wue/SliderDoc/blob/main/mc/dual-movement.md), not CNC. `mc.axis_count` / `getAxisCount()` come from CG `axis` (not live `IA`). Verbose `#…` is one line: axis-1 fields, then ` | ` and the same 1-axis schema for extra axes (`#M 12.5 25 0 100 | 67.8 5 25 90`). Panels register `set_axis_status_callback` (`cb(axis, state, pos, speed, accel, dest)`); `UIC_Base` uses axis 1 for OLED/LED. Use `moveTo(pos, pos2)`, `moveTo(None, pos2)` → `MT _ pos2`, `home(2)`.
 
 | Idea | Entry point |
 |------|-------------|
@@ -178,7 +178,7 @@ Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for
 
 **B4Slider**
 
-- 4 buttons (1-axis) or 6 buttons with optional *MOVE_L2/R2* on GP8/GP9 when SliderMC `axis2_use=1`
+- 4 buttons (1-axis) or 6 buttons with optional *MOVE_L2/R2* on GP8/GP9 when SliderMC `axis=2`
 - RGB LED · SPEED pot · (optional) ACCEL pot · boot homing axis 1 then axis 2 · no OLED required
 
 ---
