@@ -292,7 +292,7 @@ async def main():
     btn_option = ButtonAdapter(lambda: option_pin.value() == 0, debounce, long_ms, extra_ms)
     btn_set = _Btn(b4s.PIN_BTN_SET, debounce, long_ms, extra_ms, learn_ms)
 
-    axis2 = mc.getAxisCount() >= 2
+    axis2 = mc.getMotorCount() >= 2
     move_l2 = None
     move_r2 = None
     if axis2:

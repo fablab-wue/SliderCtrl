@@ -17,7 +17,7 @@ PIN_POT_ACCEL = 27        # ADC1 — ACCEL (only if B4S_USE_ACCEL_POT)
 # ---------------------------------------------------------------------------
 PIN_BTN_MOVE_L = 6
 PIN_BTN_MOVE_R = 7
-PIN_BTN_MOVE_L2 = 8     # axis 2 (pan) — optional when MC axis_count==2
+PIN_BTN_MOVE_L2 = 8     # axis 2 (pan) — optional when MC motors>=2
 PIN_BTN_MOVE_R2 = 9
 PIN_BTN_OPTION = 13
 PIN_BTN_SET = 5           # was STOP on JKSlider discrete map
@@ -62,7 +62,7 @@ B4S_LEFT_IS_NEGATIVE = True
 B4S_LEFT2_IS_NEGATIVE = True
 # Dual-chord tap threshold (defaults to B4S_MOVE_TAP_MS when unset).
 B4S_CHORD_TAP_MS = 333
-# Boot homing: axis 1 then axis 2 when MC axis_count==2 (like JKSlider).
+# Boot homing: axis 1 then axis 2 when MC motors>=2 (like JKSlider).
 B4S_HOMING_ENABLED = True
 # Near soft-limit distance for UIC blue mix (mm). Overlay UIC SOFT_LIMIT_WARN_MM too.
 B4S_NEAR_SOFT_MM = 3.0

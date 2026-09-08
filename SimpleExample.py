@@ -20,6 +20,7 @@ async def main():
     mc.setMaxSpeed(80.0)          # mm/s (CS to MC)
     mc.setSpeed(40.0)             # mm/s cruise
     mc.setAcceleration(150.0)     # mm/s² (sine ramp peak)
+    # Envelope from CG MOTOR_1_min/max (Python slider_min/max aliases). SL/SR window.
     soft_max = mc.slider_max if mc.slider_max is not None else 600.0
     mc.setSoftLimits(0.0, soft_max)
 

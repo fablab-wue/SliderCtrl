@@ -51,6 +51,7 @@ async def demo():
     await mc.start()
     mc.setMaxSpeed(80.0)          # mm/s at full deflection
     mc.setAcceleration(250.0)     # used by move() ramps / reversals
+    # Envelope from CG MOTOR_1_min/max (Python slider_min/max aliases). SL/SR window.
     soft_max = mc.slider_max if mc.slider_max is not None else 600.0
     mc.setSoftLimits(0.0, soft_max)
     mc.enable(True)

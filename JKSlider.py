@@ -787,7 +787,7 @@ async def main():
     mc.set_axis_status_callback(ui.on_axis_status)
     await mc.start()
     await ui.start()
-    # Ceilings / soft limits from MC CG (MC_Client.fetchConfig); no boot CS.
+    # Ceilings / envelopes from MC CG (MOTOR_1_min/max → slider_min/max aliases); no boot CS.
     soft_min = mc.slider_min
     soft_max = mc.slider_max if mc.slider_max is not None else 0.0
     ui.set_soft_limits(mc.slider_min, mc.slider_max)
