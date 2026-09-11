@@ -191,17 +191,18 @@ JKSlider = {
 # ---------------------------------------------------------------------------
 # Alternative: Waveshare RP2040-Zero as UIC (JKSlider button mode)
 #
-# Pinout: SliderDoc assets/img/JKSlider_rp2040zero_pinout_button.png (JKSlider)
-#          or B4Slider_rp2040zero_pinout_button.png (B4Slider 2-axis)
+# Pinout: SliderDoc assets/img/JKS_RP2040zero_pinout_button.png (JKSlider)
+#          or B4S_RP2040zero_pinout.png (B4Slider AXIS_1..5)
 #         (`python tools/render_rp2040zero_pinout_SliderMC.py button`)
 #
-# Copy this file to SliderPins.py, then uncomment the three .update() lines
-# at the bottom of this block. Pico defaults stay in the dicts above until then.
+# Copy this file to SliderPins.py, then uncomment the .update() lines
+# after the B4Slider dict. Pico defaults stay in the dicts above until then.
 #
 # Hardware notes:
 #   UART0 TX/RX = GP12/13 (not Pico GP16/17)
 #   OLED I2C1 SDA/SCL = GP14/15 → DSP_I2C_ID = 1
-#   RGB LED = GP11/10/9; camera = GP29; DELAY/TIMELAPSE = underside GP25/24
+#   RGB LED = GP11/10/9; GP29 free (camera is SliderMC PIN_CAMERA_CTRL)
+#   DELAY/TIMELAPSE = underside GP25/24 (JKSlider)
 #   JKS_INPUT_MODE must be "button" (no keypad matrix on this map)
 #   GP16 = onboard WS2812 (optional PIN_NEOPIXEL)
 # ---------------------------------------------------------------------------
@@ -239,33 +240,66 @@ RP2040_ZERO_JKSlider = {
     "PIN_BTN_TIMELAPSE": 24,
 }
 
-# Uncomment to apply the RP2040-Zero UIC map:
-# MC_config.update(RP2040_ZERO_MC_config)
-# UIC_config.update(RP2040_ZERO_UIC_config)
-# JKSlider.update(RP2040_ZERO_JKSlider)
+RP2040_ZERO_B4Slider = {
+    "PIN_POT_SPEED": 26,
+    "PIN_POT_ACCEL": 27,
+    "PIN_BTN_SET": 0,
+    "PIN_BTN_MOVE_L": 1,
+    "PIN_BTN_MOVE_R": 2,
+    "PIN_BTN_AXIS_1": 3,
+    "PIN_BTN_AXIS_2": 4,
+    "PIN_BTN_AXIS_3": 5,
+    "PIN_BTN_AXIS_4": 6,
+    "PIN_BTN_AXIS_5": 7,
+    "PIN_BTN_OPTION": 8,
+    "PIN_ENC_SPEED_A": 24,
+    "PIN_ENC_SPEED_B": 25,
+    "PIN_ENC_ACCEL_A": 22,
+    "PIN_ENC_ACCEL_B": 23,
+}
 
 # ---------------------------------------------------------------------------
-# B4Slider — 4-button app (MOVE_L/R, OPTION, SET + SPEED pot). Consumed by B4SliderConfig.py
+# B4Slider — MOVE_L/R, AXIS_1..5, OPTION, SET. Consumed by B4SliderConfig.py
+# Overlay B4S_USE_ACCEL_POT=0 (without B4S_ACCEL_INPUT) keeps SET-button accel.
 # ---------------------------------------------------------------------------
 B4Slider = {
     "PIN_POT_SPEED": 26,
     "PIN_POT_ACCEL": 27,
     "PIN_BTN_MOVE_L": 6,
     "PIN_BTN_MOVE_R": 7,
-    "PIN_BTN_MOVE_L2": 8,
-    "PIN_BTN_MOVE_R2": 9,
+    "PIN_BTN_AXIS_1": 12,
+    "PIN_BTN_AXIS_2": 11,
+    "PIN_BTN_AXIS_3": 10,
+    "PIN_BTN_AXIS_4": 9,
+    "PIN_BTN_AXIS_5": 8,
     "PIN_BTN_OPTION": 13,
     "PIN_BTN_SET": 5,
+    "PIN_ENC_SPEED_A": 14,
+    "PIN_ENC_SPEED_B": 15,
+    "PIN_ENC_ACCEL_A": 18,
+    "PIN_ENC_ACCEL_B": 19,
+    "B4S_SPEED_INPUT": "pot",
+    "B4S_ACCEL_INPUT": "pot",
+    "B4S_SPEED_QD_MODE": 11,
+    "B4S_ACCEL_QD_MODE": 11,
     "B4S_HOMING_ENABLED": True,
+    "B4S_LEFT_IS_NEGATIVE": True,
     "B4S_LEFT2_IS_NEGATIVE": True,
-    "B4S_USE_ACCEL_POT": 0,
+    "B4S_LEFT3_IS_NEGATIVE": True,
+    "B4S_LEFT4_IS_NEGATIVE": True,
+    "B4S_LEFT5_IS_NEGATIVE": True,
     "B4S_ACCEL_PRESET_L": 100.0,
     "B4S_ACCEL_PRESET_H": 400.0,
     "B4S_NEAR_SOFT_MM": 3.0,
     "B4S_BOOT_UNLOCK": True,
-    "B4S_LEFT_IS_NEGATIVE": True,
     "B4S_MOVE_TAP_MS": 333,
     "B4S_LONG_PRESS_MS": 1000,
     "B4S_EXTRA_LONG_MS": 3000,
     "B4S_LEARN_HOLD_MS": 5000,
 }
+
+# Uncomment to apply the RP2040-Zero UIC map (after the dicts above):
+# MC_config.update(RP2040_ZERO_MC_config)
+# UIC_config.update(RP2040_ZERO_UIC_config)
+# JKSlider.update(RP2040_ZERO_JKSlider)
+# B4Slider.update(RP2040_ZERO_B4Slider)

@@ -1,4 +1,4 @@
-# B4Slider — 4-button panel configuration (shipped defaults).
+# B4Slider — panel configuration (shipped defaults).
 #
 # Users: copy SliderPins.example.py → SliderPins.py and edit that file only.
 # SliderPins.B4Slider may override any key below (pins + behaviour).
@@ -7,20 +7,49 @@
 #   this file — B4Slider panel pins + B4S_* behaviour
 
 # ---------------------------------------------------------------------------
-# GPIO — potentiometers
+# GPIO — potentiometers (when B4S_SPEED_INPUT / B4S_ACCEL_INPUT is "pot")
 # ---------------------------------------------------------------------------
 PIN_POT_SPEED = 26        # ADC0 — SPEED
-PIN_POT_ACCEL = 27        # ADC1 — ACCEL (only if B4S_USE_ACCEL_POT)
+PIN_POT_ACCEL = 27        # ADC1 — ACCEL
 
 # ---------------------------------------------------------------------------
-# Discrete buttons (active-low, pull-ups)
+# Discrete buttons (active-low, pull-ups). AXIS_4/5 on former MOVE_L2/R2 pads.
 # ---------------------------------------------------------------------------
 PIN_BTN_MOVE_L = 6
 PIN_BTN_MOVE_R = 7
-PIN_BTN_MOVE_L2 = 8     # axis 2 (pan) — optional when MC motors>=2
-PIN_BTN_MOVE_R2 = 9
+PIN_BTN_AXIS_1 = 12
+PIN_BTN_AXIS_2 = 11
+PIN_BTN_AXIS_3 = 10
+PIN_BTN_AXIS_4 = 9
+PIN_BTN_AXIS_5 = 8
 PIN_BTN_OPTION = 13
 PIN_BTN_SET = 5           # was STOP on JKSlider discrete map
+
+# ---------------------------------------------------------------------------
+# Optional quadrature encoders (pin_b must be pin_a + 1)
+# ---------------------------------------------------------------------------
+PIN_ENC_SPEED_A = 14
+PIN_ENC_SPEED_B = 15
+PIN_ENC_ACCEL_A = 18
+PIN_ENC_ACCEL_B = 19
+B4S_QD_SPEED_SM = 2       # UIC NeoPixel is SM 1
+B4S_QD_ACCEL_SM = 3
+B4S_QD_DIV = 4
+B4S_QD_ROUND = 2          # detents = (raw + 2) // 4
+
+# ---------------------------------------------------------------------------
+# Speed / accel input
+# ---------------------------------------------------------------------------
+# "pot" | "rotary"
+B4S_SPEED_INPUT = "pot"
+# "pot" | "rotary" | "set"  (SET-button L/H/learn)
+B4S_ACCEL_INPUT = "pot"
+# 1..4 linear, 11..14 log. Rotary boot value is vmax/8.
+B4S_SPEED_QD_MODE = 11
+B4S_ACCEL_QD_MODE = 11
+
+# Legacy overlay: SliderPins.B4S_USE_ACCEL_POT without B4S_ACCEL_INPUT → set/pot.
+B4S_USE_ACCEL_POT = 0
 
 # ---------------------------------------------------------------------------
 # Pots / feel
@@ -38,12 +67,9 @@ B4S_SPEED_MAX_MM_S = 100.0
 B4S_ACCEL_MIN_MM_S2 = 50.0
 B4S_ACCEL_MAX_MM_S2 = 500.0
 
-# Accel presets when no ACCEL pot (L=low, H=high — not A/B marks).
+# Accel presets when B4S_ACCEL_INPUT is "set" (L=low, H=high — not A/B marks).
 B4S_ACCEL_PRESET_L = 100.0
 B4S_ACCEL_PRESET_H = 400.0
-
-# 1 = use ACCEL pot (JKSlider-style); disables SET-alone Hold>N accel gestures.
-B4S_USE_ACCEL_POT = 0
 
 # ---------------------------------------------------------------------------
 # Button timing
@@ -60,9 +86,12 @@ B4S_MOVE_TAP_MS = 333
 # ---------------------------------------------------------------------------
 B4S_LEFT_IS_NEGATIVE = True
 B4S_LEFT2_IS_NEGATIVE = True
-# Dual-chord tap threshold (defaults to B4S_MOVE_TAP_MS when unset).
-B4S_CHORD_TAP_MS = 333
-# Boot homing: axis 1 then axis 2 when MC motors>=2 (like JKSlider).
+B4S_LEFT3_IS_NEGATIVE = True
+B4S_LEFT4_IS_NEGATIVE = True
+B4S_LEFT5_IS_NEGATIVE = True
+B4S_SOFT_FALLBACK_MIN = -2000.0
+B4S_SOFT_FALLBACK_MAX = 2000.0
+# Boot homing: motors 1..getMotorCount() (do not home servos).
 B4S_HOMING_ENABLED = True
 # Near soft-limit distance for UIC blue mix (mm). Overlay UIC SOFT_LIMIT_WARN_MM too.
 B4S_NEAR_SOFT_MM = 3.0
@@ -87,5 +116,9 @@ try:
     if isinstance(_ov, dict):
         for _k, _v in _ov.items():
             globals()[_k] = _v
+        if "B4S_ACCEL_INPUT" not in _ov and "B4S_USE_ACCEL_POT" in _ov:
+            B4S_ACCEL_INPUT = (
+                "pot" if int(_ov["B4S_USE_ACCEL_POT"]) else "set"
+            )
 except ImportError:
     pass

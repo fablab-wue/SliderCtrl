@@ -8,7 +8,7 @@
 
 You bring the rail, motor, and housing. The **firmware and on-set workflow** aim at behaviour comparable to expensive commercial motorized sliders: live retarget, smooth ramps, marks and loops, timelapse, STOP / EMO, and hard-limit homing. **Mechanics quality depends on your build** — the motion stack and panel UX are designed to keep up.
 
-Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/SliderMC)** (STEP/DIR motors, optional RC servos, planner, limits; protocol **VP:3**). Docs and manuals live in **[SliderDoc](https://github.com/fablab-wue/SliderDoc)**. Optionally extra STEP/DIR motors (typical **slider travel + pan**) are time-synced with the first — `CS motors 2` (or `3`); `MC_Client` already speaks packed channels. Do **not** send `CS axis`.
+Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/SliderMC)** (STEP/DIR motors, optional RC servos, planner, limits; welcome `# MC V1 - …`, protocol **VP:1**). Docs and manuals live in **[SliderDoc](https://github.com/fablab-wue/SliderDoc)**. Optionally extra STEP/DIR motors (typical **slider travel + pan**) are time-synced with the first — `CS motors 2` (or `3`); `MC_Client` already speaks packed channels. Do **not** send `CS axis`.
 
 > Documentation: [SliderDoc](https://github.com/fablab-wue/SliderDoc)
 
@@ -25,7 +25,7 @@ Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/Slid
 - **Production moves** — Pos A / B / C with power-off recall · pair loops · DELAY walk-ins · TIMELAPSE dividers · pause / resume  
 - **Eyes-off status** — I2C OLED (SSD1306 / SH1106 / SSD1309) · RGB LED · optional NeoPixel (same colours)  
 - **Open stack** — edit `SliderPins.py`, Thonny / REPL workflow · fork the panel or build on `MC_Client` / `UIC_Base` · or use the stack as a **construction kit** for custom 1- or 2-axis rigs  
-- **Optional 2-motor** — linear travel + time-synced pan (or tilt/turn); SliderMC `CS motors 2`; `MC_Client` dual `moveTo` / `home`. Banner is `{motors}+{servos} axis`. Shipping JKSlider stays 1-motor; B4Slider pan buttons gate on `getMotorCount() >= 2`  
+- **Optional extra motors** — linear travel + time-synced pan/tilt; SliderMC `CS motors 2` (or `3`); `MC_Client` packed `moveTo` / `home`. Banner is `{motors}+{servos} axis`. Shipping JKSlider stays 1-motor; B4Slider selects packed axes **1–5** (`getAxisCount()`)  
 - **Split architecture** — OLED, keypad, and pots never steal STEP timing ([SliderMC](https://github.com/fablab-wue/SliderMC) owns motion)  
 - **Maker-friendly** — upcycle rails and linear units · A4988, DRV8825, TMC, and other STEP/DIR drivers  
 
@@ -40,7 +40,7 @@ The stack is a **software and electronics construction kit** — turnkey panel *
 | Project | Purpose | When to use | Entry |
 |---------|---------|-------------|--------|
 | **JKSlider** | Full motorized camera slider panel — keypad or discrete buttons, SPEED/ACCEL pots, OLED, marks A/B/C, timelapse, DELAY | Default for interviews, product, B-roll, and any shoot that needs the full feature set | [`JKSlider.py`](JKSlider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/user-manual.md) |
-| **B4Slider** | Minimal 4-button remote — MOVE L/R, SET, OPTION, one SPEED pot, RGB status | Slim handheld, budget builds, or when you do not need OLED, keypad, marks, or timelapse | [`B4Slider.py`](B4Slider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/b4slider/user-manual.md) |
+| **B4Slider** | Minimal AXIS-select remote — MOVE L/R, SET, OPTION, AXIS_1..5, SPEED pot or rotary | Slim handheld or multi-axis kits (typical silk 1/2/3); working-window A/B, no keypad/timelapse | [`B4Slider.py`](B4Slider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/b4slider/user-manual.md) |
 | *More coming* | Additional UIC apps on the same `MC_Client` / UART protocol | Custom rigs and new panel ideas | [project template](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/_template/README.md) |
 
 Under the hood, all projects share **`MC_Client`** + **`UIC_Base`** — kit libraries for your own feature-rich motorized camera slider UI, mini-dolly, rotating head, turntable, **2-axis slider + pan**, or other STEP/DIR rig.
@@ -68,9 +68,9 @@ Trade-off: a second Pico (~€5), a little more wiring. Philosophy and pinouts: 
 | Buttons, keypads, OLED, RGB/NeoPixel, pots, joysticks, camera | Motor / STEP·DIR driver, home switch, hard limits, Ext, `DRV_ERROR` |
 | Optional WLAN, USB debug, UART → MC | USB debug, UART → UIC |
 
-![JKSlider UIC Pico pinout — keypad mode](https://github.com/fablab-wue/SliderDoc/raw/main/uic/projects/jkslider/panel-layouts/pico_pinout_keypad.png)
+![JKSlider UIC Pico pinout — keypad mode](https://github.com/fablab-wue/SliderDoc/raw/main/uic/projects/jkslider/panel-layouts/JKS_Pico_pinout_keypad.png)
 
-SliderMC motion pinout: [mc/pins.md](https://github.com/fablab-wue/SliderDoc/blob/main/mc/pins.md) · [pico_pinout_mc.png](https://github.com/fablab-wue/SliderDoc/raw/main/assets/img/pico_pinout_mc.png)
+SliderMC motion pinout: [mc/pins.md](https://github.com/fablab-wue/SliderDoc/blob/main/mc/pins.md) · [MC_Pico_pinout.png](https://github.com/fablab-wue/SliderDoc/raw/main/assets/img/MC_Pico_pinout.png)
 
 ---
 
@@ -156,7 +156,7 @@ asyncio.run(main())
 | Point-to-point demo | `SimpleExample.py` |
 | Pot → velocity | `JoystickExample.py` |
 | Full camera panel | `JKSlider.py` |
-| Minimal 4-button panel | `B4Slider.py` |
+| Minimal AXIS-select panel | `B4Slider.py` |
 | API reference | [uic/api/overview.md](https://github.com/fablab-wue/SliderDoc/blob/main/uic/api/overview.md) |
 
 Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for your hardware.
@@ -178,8 +178,7 @@ Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for
 
 **B4Slider**
 
-- 4 buttons (1-motor) or 6 buttons with optional *MOVE_L2/R2* on GP8/GP9 when SliderMC `motors>=2`
-- RGB LED · SPEED pot · (optional) ACCEL pot · boot homing axis 1 then axis 2 · no OLED required
+- AXIS_1..5 (Pico GP12/11/10/9/8) · MOVE_L/R · SET · OPTION · RGB LED · SPEED pot or rotary · optional ACCEL pot/rotary · optional OLED · boot homing motors only
 
 ---
 
