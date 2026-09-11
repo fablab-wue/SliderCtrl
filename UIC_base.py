@@ -129,6 +129,7 @@ class UIC_Base:
         self._enabled = None
         self._state = None
         self._pos_mm = None
+        self._oled_axis = 1
         self._target_mm = None
 
         self._moving = False
@@ -231,12 +232,15 @@ class UIC_Base:
     # --- on_axis_status: OLED + LED ----------------------------------------
 
     def on_axis_status(self, axis, state, pos, speed, accel, dest):
-        """MC_Client per-axis `#…` callback — OLED/LED use axis 1."""
+        """MC_Client per-axis `#…` callback — OLED/LED follow ``_oled_axis`` (default 1)."""
         try:
             axis = int(axis)
         except (TypeError, ValueError):
             return
-        if axis != 1:
+        oled_ax = int(getattr(self, "_oled_axis", 1) or 1)
+        if oled_ax < 1:
+            oled_ax = 1
+        if axis != oled_ax:
             return
         self._state = state
         self._moving = state in ("M", "A", "B", "H")
@@ -350,6 +354,16 @@ class UIC_Base:
         self._oled_badge_delay = delay
         self._oled_badge_mark = mark
         self._update_oled(force=True)
+
+    def setOledAxis(self, axis):
+        """Which packed channel drives OLED position / LED motion (1-based)."""
+        try:
+            a = int(axis)
+        except (TypeError, ValueError):
+            a = 1
+        if a < 1:
+            a = 1
+        self._oled_axis = a
 
     def setCameraMode(self, tl_div, fps):
         try:
@@ -803,6 +817,8 @@ class UIC_Base:
         self._pin_cam.value(level if active_high else (0 if level else 1))
 
     def _tick_camera_ctrl(self):
+        if self._pin_cam is None:
+            return
         now = time.ticks_ms()
         if self._cam_manual:
             if self._cam_pulse_until is not None:

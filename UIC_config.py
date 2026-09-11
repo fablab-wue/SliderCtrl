@@ -19,10 +19,10 @@ PIN_NEOPIXEL = None
 PIO_NEOPIXEL_SM_ID = 1
 
 # ---------------------------------------------------------------------------
-# GPIO — camera shutter / intervalometer
+# GPIO — camera shutter (retired on UIC; SliderMC CT / PIN_CAMERA_CTRL)
 # ---------------------------------------------------------------------------
-# Active-high into optocoupler LED by default.
-PIN_CTRL_CAMERA = 22
+# None = do not claim a UIC pad. Pulse width is still the CT duration.
+PIN_CTRL_CAMERA = None
 CTRL_CAMERA_PULSE_MS = 100
 CTRL_CAMERA_ACTIVE_HIGH = True
 

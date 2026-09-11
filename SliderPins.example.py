@@ -58,8 +58,8 @@ UIC_config = {
     # Optional single WS2812 NeoPixel. None = disabled.
     "PIN_NEOPIXEL": None,
     "PIO_NEOPIXEL_SM_ID": 1,
-    # GPIO — camera shutter / intervalometer
-    "PIN_CTRL_CAMERA": 22,
+    # GPIO — camera shutter retired on UIC (SliderMC CT)
+    "PIN_CTRL_CAMERA": None,
     "CTRL_CAMERA_PULSE_MS": 100,
     "CTRL_CAMERA_ACTIVE_HIGH": True,
     # OLED 128x64 over I2C
@@ -106,7 +106,9 @@ JKSlider = {
     # GPIO — potentiometers (always)
     "PIN_POT_SPEED": 26,  # ADC0 — SPEED (left=min floor, right=MC max_speed)
     "PIN_POT_ACCEL": 27,  # ADC1 — ACCEL (left=min, right=local/MC max)
-    "PIN_POT_JOYSTICK": None,  # Optional centre-return stick (e.g. 28 = ADC2). None = off.
+    "PIN_POT_JOYSTICK_1": 28,  # ADC2 — 1st selected axis. None = off.
+    "PIN_POT_JOYSTICK_2": None,  # 2nd selected axis (Zero GP29).
+    "PIN_POT_JOYSTICK": 28,  # legacy alias
     # Input mode
     # "button" = one GPIO per switch (active-low, pull-ups).
     # "keypad" = matrix on PIN_KEYPAD_ROWS / PIN_KEYPAD_COLS (up to 4x4);
@@ -127,6 +129,12 @@ JKSlider = {
     "PIN_BTN_C": 12,
     "PIN_BTN_DELAY": 14,  # Optional: hold N s → delay; short → delay off
     "PIN_BTN_TIMELAPSE": 15,  # Optional: tap → TL divider; long → divider 1
+    "PIN_BTN_AXIS_1": 21,
+    "PIN_BTN_AXIS_2": 20,
+    "PIN_BTN_AXIS_3": 19,
+    "PIN_BTN_AXIS_4": 18,
+    "PIN_BTN_AXIS_5": None,
+    "PIN_BTN_AXIS_6": None,
     # Keypad matrix — used when JKS_INPUT_MODE == "keypad"
     # Rows GP6..GP9 = KP_ROW1..KP_ROW4. Cols GP10..GP13 = KP_COL1..KP_COL_4.
     "PIN_KEYPAD_ROWS": (6, 7, 8, 9),
@@ -158,6 +166,11 @@ JKSlider = {
     "JKS_MOVE_TAP_MS": 333,
     # Motion behaviour
     "JKS_LEFT_IS_NEGATIVE": True,
+    "JKS_LEFT2_IS_NEGATIVE": True,
+    "JKS_LEFT3_IS_NEGATIVE": True,
+    "JKS_LEFT4_IS_NEGATIVE": True,
+    "JKS_LEFT5_IS_NEGATIVE": True,
+    "JKS_LEFT6_IS_NEGATIVE": True,
     "JKS_SWAP_LR": False,
     "JKS_LOOP_DWELL_MS": 1000,
     # Delay / OPTION
@@ -201,7 +214,7 @@ JKSlider = {
 # Hardware notes:
 #   UART0 TX/RX = GP12/13 (not Pico GP16/17)
 #   OLED I2C1 SDA/SCL = GP14/15 → DSP_I2C_ID = 1
-#   RGB LED = GP11/10/9; GP29 free (camera is SliderMC PIN_CAMERA_CTRL)
+#   RGB LED = GP11/10/9; GP29 = POT_JOYSTICK_2 (camera is SliderMC PIN_CAMERA_CTRL)
 #   DELAY/TIMELAPSE = underside GP25/24 (JKSlider)
 #   JKS_INPUT_MODE must be "button" (no keypad matrix on this map)
 #   GP16 = onboard WS2812 (optional PIN_NEOPIXEL)
@@ -216,7 +229,7 @@ RP2040_ZERO_UIC_config = {
     "PIN_LED_G": 10,
     "PIN_LED_B": 9,
     "PIN_NEOPIXEL": None,
-    "PIN_CTRL_CAMERA": 29,
+    "PIN_CTRL_CAMERA": None,
     "DSP_I2C_ID": 1,
     "PIN_DSP_I2C_SDA": 14,
     "PIN_DSP_I2C_SCL": 15,
@@ -225,6 +238,8 @@ RP2040_ZERO_UIC_config = {
 RP2040_ZERO_JKSlider = {
     "PIN_POT_SPEED": 26,
     "PIN_POT_ACCEL": 27,
+    "PIN_POT_JOYSTICK_1": 28,
+    "PIN_POT_JOYSTICK_2": 29,
     "PIN_POT_JOYSTICK": 28,
     "JKS_INPUT_MODE": "button",
     "PIN_BTN_STOP": 0,
@@ -238,6 +253,12 @@ RP2040_ZERO_JKSlider = {
     "PIN_BTN_C": 7,
     "PIN_BTN_DELAY": 25,
     "PIN_BTN_TIMELAPSE": 24,
+    "PIN_BTN_AXIS_1": 23,
+    "PIN_BTN_AXIS_2": 22,
+    "PIN_BTN_AXIS_3": 21,
+    "PIN_BTN_AXIS_4": 20,
+    "PIN_BTN_AXIS_5": 19,
+    "PIN_BTN_AXIS_6": 18,
 }
 
 RP2040_ZERO_B4Slider = {
@@ -251,6 +272,7 @@ RP2040_ZERO_B4Slider = {
     "PIN_BTN_AXIS_3": 5,
     "PIN_BTN_AXIS_4": 6,
     "PIN_BTN_AXIS_5": 7,
+    "PIN_BTN_AXIS_6": 17,
     "PIN_BTN_OPTION": 8,
     "PIN_ENC_SPEED_A": 24,
     "PIN_ENC_SPEED_B": 25,
@@ -259,7 +281,7 @@ RP2040_ZERO_B4Slider = {
 }
 
 # ---------------------------------------------------------------------------
-# B4Slider — MOVE_L/R, AXIS_1..5, OPTION, SET. Consumed by B4SliderConfig.py
+# B4Slider — MOVE_L/R, AXIS_1..6, OPTION, SET. Consumed by B4SliderConfig.py
 # Overlay B4S_USE_ACCEL_POT=0 (without B4S_ACCEL_INPUT) keeps SET-button accel.
 # ---------------------------------------------------------------------------
 B4Slider = {
@@ -272,6 +294,7 @@ B4Slider = {
     "PIN_BTN_AXIS_3": 10,
     "PIN_BTN_AXIS_4": 9,
     "PIN_BTN_AXIS_5": 8,
+    "PIN_BTN_AXIS_6": 22,
     "PIN_BTN_OPTION": 13,
     "PIN_BTN_SET": 5,
     "PIN_ENC_SPEED_A": 14,
@@ -288,6 +311,7 @@ B4Slider = {
     "B4S_LEFT3_IS_NEGATIVE": True,
     "B4S_LEFT4_IS_NEGATIVE": True,
     "B4S_LEFT5_IS_NEGATIVE": True,
+    "B4S_LEFT6_IS_NEGATIVE": True,
     "B4S_ACCEL_PRESET_L": 100.0,
     "B4S_ACCEL_PRESET_H": 400.0,
     "B4S_NEAR_SOFT_MM": 3.0,

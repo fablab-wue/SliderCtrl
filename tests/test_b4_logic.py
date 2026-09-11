@@ -123,5 +123,105 @@ class TestEncoder(unittest.TestCase):
         self.assertFalse(bl.clamp_enter(True, False))
 
 
+class TestAxisGestures(unittest.TestCase):
+    def test_exclusive_short(self):
+        mask, invalid = bl.exclusive_axis(3, 6, frozenset((1,)))
+        self.assertEqual(mask, frozenset((3,)))
+        self.assertFalse(invalid)
+        mask, invalid = bl.exclusive_axis(7, 6, frozenset((1,)))
+        self.assertEqual(mask, frozenset((1,)))
+        self.assertTrue(invalid)
+
+    def test_toggle_refuses_empty(self):
+        mask, invalid = bl.toggle_axis(frozenset((2,)), 2, 6)
+        self.assertEqual(mask, frozenset((2,)))
+        self.assertTrue(invalid)
+        mask, invalid = bl.toggle_axis(frozenset((2, 5)), 5, 6)
+        self.assertEqual(mask, frozenset((2,)))
+        self.assertFalse(invalid)
+        mask, invalid = bl.toggle_axis(frozenset((2,)), 5, 6)
+        self.assertEqual(mask, frozenset((2, 5)))
+        self.assertFalse(invalid)
+
+    def test_suffix_and_prefix(self):
+        mask, invalid = bl.axis_range_suffix(3, 6, frozenset((1,)))
+        self.assertEqual(mask, frozenset((3, 4, 5, 6)))
+        self.assertFalse(invalid)
+        mask, invalid = bl.axis_range_prefix(3, 6, frozenset((5,)))
+        self.assertEqual(mask, frozenset((1, 2, 3)))
+        self.assertFalse(invalid)
+        mask, invalid = bl.axis_range_suffix(1, 6, frozenset((2,)))
+        self.assertEqual(mask, frozenset((1, 2, 3, 4, 5, 6)))
+        self.assertFalse(invalid)
+        mask, invalid = bl.axis_range_suffix(4, 3, frozenset((1,)))
+        self.assertEqual(mask, frozenset((1,)))
+        self.assertTrue(invalid)
+
+    def test_apply_short_long_option(self):
+        mask, invalid = bl.apply_axis_short(2, False, frozenset((1,)), 6)
+        self.assertEqual(mask, frozenset((2,)))
+        mask, invalid = bl.apply_axis_short(5, True, frozenset((2,)), 6)
+        self.assertEqual(mask, frozenset((2, 5)))
+        mask, invalid = bl.apply_axis_long(3, False, frozenset((1,)), 6)
+        self.assertEqual(mask, frozenset((3, 4, 5, 6)))
+        mask, invalid = bl.apply_axis_long(3, True, frozenset((5,)), 6)
+        self.assertEqual(mask, frozenset((1, 2, 3)))
+
+    def test_update_chord_then_release_ignores_shorts(self):
+        mask, invalid = bl.update_axis_selection(
+            (1, 3), (), (), False, frozenset((1,)), 6, 0
+        )
+        self.assertEqual(mask, frozenset((1, 3)))
+        self.assertFalse(invalid)
+        mask, invalid = bl.update_axis_selection(
+            (), (3,), (), False, frozenset((1, 3)), 6, 2
+        )
+        self.assertEqual(mask, frozenset((1, 3)))
+        self.assertFalse(invalid)
+
+    def test_update_single_short_and_long(self):
+        mask, invalid = bl.update_axis_selection(
+            (), (2,), (), False, frozenset((1,)), 6, 1
+        )
+        self.assertEqual(mask, frozenset((2,)))
+        mask, invalid = bl.update_axis_selection(
+            (3,), (), (3,), False, frozenset((1,)), 6, 0
+        )
+        self.assertEqual(mask, frozenset((3, 4, 5, 6)))
+        mask, invalid = bl.update_axis_selection(
+            (3,), (), (3,), True, frozenset((1,)), 6, 0
+        )
+        self.assertEqual(mask, frozenset((1, 2, 3)))
+
+
+class TestMjPct(unittest.TestCase):
+    def test_slots_same_pct_on_mask(self):
+        self.assertEqual(
+            bl.mj_pct_slots(frozenset((1, 3)), 100, 6),
+            (100, 0, 100, 0, 0, 0),
+        )
+        self.assertEqual(
+            bl.mj_pct_slots(frozenset((2, 5)), -100, 5),
+            (0, -100, 0, 0, -100),
+        )
+
+    def test_from_axis_map_and_order(self):
+        self.assertEqual(
+            bl.mj_pct_from_axis_map({3: 40, 1: -80}, 6),
+            (-80, 0, 40, 0, 0, 0),
+        )
+        self.assertEqual(bl.selected_axis_order({3, 1}), (1, 3))
+        self.assertEqual(bl.selected_axis_order(frozenset()), (1,))
+
+
+class TestOledSix(unittest.TestCase):
+    def test_six_axis(self):
+        self.assertEqual(
+            bl.format_axis_oled(frozenset((1, 2, 3, 4, 5, 6))),
+            "Ax 1+2+3+4+5+6",
+        )
+        self.assertEqual(bl.format_axis_oled(frozenset((6,))), "Ax 6")
+
+
 if __name__ == "__main__":
     unittest.main()

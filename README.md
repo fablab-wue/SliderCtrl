@@ -25,7 +25,7 @@ Motion runs on a separate board: **[SliderMC](https://github.com/fablab-wue/Slid
 - **Production moves** — Pos A / B / C with power-off recall · pair loops · DELAY walk-ins · TIMELAPSE dividers · pause / resume  
 - **Eyes-off status** — I2C OLED (SSD1306 / SH1106 / SSD1309) · RGB LED · optional NeoPixel (same colours)  
 - **Open stack** — edit `SliderPins.py`, Thonny / REPL workflow · fork the panel or build on `MC_Client` / `UIC_Base` · or use the stack as a **construction kit** for custom 1- or 2-axis rigs  
-- **Optional extra motors** — linear travel + time-synced pan/tilt; SliderMC `CS motors 2` (or `3`); `MC_Client` packed `moveTo` / `home`. Banner is `{motors}+{servos} axis`. Shipping JKSlider stays 1-motor; B4Slider selects packed axes **1–5** (`getAxisCount()`)  
+- **Optional extra motors** — linear travel + time-synced pan/tilt; SliderMC `CS motors 2` (or `3`); `MC_Client` packed `moveTo` / `home`. Banner is `{motors}+{servos} axis`. JKSlider and B4Slider select packed axes **1–6** (`getAxisCount()`); JKSlider marks stay axis 1  
 - **Split architecture** — OLED, keypad, and pots never steal STEP timing ([SliderMC](https://github.com/fablab-wue/SliderMC) owns motion)  
 - **Maker-friendly** — upcycle rails and linear units · A4988, DRV8825, TMC, and other STEP/DIR drivers  
 
@@ -40,7 +40,7 @@ The stack is a **software and electronics construction kit** — turnkey panel *
 | Project | Purpose | When to use | Entry |
 |---------|---------|-------------|--------|
 | **JKSlider** | Full motorized camera slider panel — keypad or discrete buttons, SPEED/ACCEL pots, OLED, marks A/B/C, timelapse, DELAY | Default for interviews, product, B-roll, and any shoot that needs the full feature set | [`JKSlider.py`](JKSlider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/user-manual.md) |
-| **B4Slider** | Minimal AXIS-select remote — MOVE L/R, SET, OPTION, AXIS_1..5, SPEED pot or rotary | Slim handheld or multi-axis kits (typical silk 1/2/3); working-window A/B, no keypad/timelapse | [`B4Slider.py`](B4Slider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/b4slider/user-manual.md) |
+| **B4Slider** | Minimal AXIS-select remote — MOVE L/R, SET, OPTION, AXIS_1..6, SPEED pot or rotary | Slim handheld or multi-axis kits (typical silk 1/2/3); working-window A/B, no keypad/timelapse | [`B4Slider.py`](B4Slider.py) · [user manual](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/b4slider/user-manual.md) |
 | *More coming* | Additional UIC apps on the same `MC_Client` / UART protocol | Custom rigs and new panel ideas | [project template](https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/_template/README.md) |
 
 Under the hood, all projects share **`MC_Client`** + **`UIC_Base`** — kit libraries for your own feature-rich motorized camera slider UI, mini-dolly, rotating head, turntable, **2-axis slider + pan**, or other STEP/DIR rig.
@@ -149,7 +149,7 @@ async def main():
 asyncio.run(main())
 ```
 
-**Optional 2-motor** (typical **motor 1 = linear**, **motor 2 = pan**): dual `MT`/`M` is [time-synced](https://github.com/fablab-wue/SliderDoc/blob/main/mc/dual-movement.md), not CNC. `mc.getMotorCount()` / `mc.motors` come from CG `motors`; packed `axis_count` / `getAxisCount()` is motors+servos (CG `axis`). Verbose `#…` is one line: axis-1 fields, then ` | ` and the same 1-axis schema (`#M 12.5 25 0 100 | 67.8 5 25 90`; idle 0 may elide as `||`). Panels register `set_axis_status_callback` (`cb(axis, state, pos, speed, accel, dest)`); `UIC_Base` uses axis 1 for OLED/LED. Use `moveTo(pos, pos2)`, `moveTo(None, pos2)` → `MT _ pos2`, `home(2)`. Envelopes: `MOTOR_N_min/max` (Python `slider_min` is packed channel 1).
+**Optional 2-motor** (typical **motor 1 = linear**, **motor 2 = pan**): dual `MT`/`M` is [time-synced](https://github.com/fablab-wue/SliderDoc/blob/main/mc/dual-movement.md), not CNC. `mc.getMotorCount()` / `mc.motors` come from CG `motors`; packed `axis_count` / `getAxisCount()` is motors+servos (CG `axis`). Verbose `#…` is one line: axis-1 fields, then ` | ` and the same 1-axis schema (`#M 12.5 25 0 100 | 67.8 5 25 90`; idle 0 may elide as `||`). Panels register `set_axis_status_callback` (`cb(axis, state, pos, speed, accel, dest)`); `UIC_Base` follows `setOledAxis` (lowest selected on the panels). Use `moveTo(pos, pos2)`, `moveTo(None, pos2)` → `MT _ pos2`, `home(2)`, packed `jog` / `moveJoy`. Envelopes: `MOTOR_N_min/max` (Python `slider_min` is packed channel 1).
 
 | Idea | Entry point |
 |------|-------------|
@@ -174,11 +174,15 @@ Copy `SliderPins.example.py` → `SliderPins.py` and edit **that file only** for
 
 **JKSlider**
 
-- Buttons or keypad (3×4 default, up to 4×4) · pots for SPEED and ACCEL · RGB LED · OLED · (optional) joystick
+- Buttons or keypad (3×4 default, optional 4×4 col4 = AXIS_1..4) · pots for SPEED and ACCEL · RGB LED · OLED · optional dual joystick
+- Pico AXIS_1..4 = GP21..18 (AXIS_5/6 unwired); JOYSTICK_1 = GP28; keypad OPTION = GP14
+- Zero AXIS_1..6 = GP23..18; JOYSTICK_1/2 = GP28/GP29
+- Camera shutter is SliderMC `CT` / `PIN_CAMERA_CTRL` (not a UIC GPIO)
 
 **B4Slider**
 
-- AXIS_1..5 (Pico GP12/11/10/9/8) · MOVE_L/R · SET · OPTION · RGB LED · SPEED pot or rotary · optional ACCEL pot/rotary · optional OLED · boot homing motors only
+- AXIS_1..6 (Pico GP12/11/10/9/8/**22**; Zero GP3..7/**17**) · MOVE_L/R · SET · OPTION · RGB LED · SPEED pot or rotary · optional ACCEL pot/rotary · optional OLED · boot homing motors only
+- Camera shutter is SliderMC `CT` (Pico GP22 is AXIS_6 on this panel)
 
 ---
 

@@ -17,7 +17,10 @@
 # ---------------------------------------------------------------------------
 PIN_POT_SPEED = 26        # ADC0 — SPEED (left=min floor, right=MC max_speed)
 PIN_POT_ACCEL = 27        # ADC1 — ACCEL (left=min, right=local/MC max)
-PIN_POT_JOYSTICK = None   # Optional centre-return stick (e.g. 28 = ADC2). None = off.
+PIN_POT_JOYSTICK_1 = 28   # ADC2 — 1st selected axis. None = off.
+PIN_POT_JOYSTICK_2 = None # 2nd selected axis (Zero GP29). None = off.
+# Legacy alias (SliderPins.PIN_POT_JOYSTICK without _1).
+PIN_POT_JOYSTICK = PIN_POT_JOYSTICK_1
 
 # ---------------------------------------------------------------------------
 # Input mode
@@ -47,6 +50,13 @@ PIN_BTN_B = 11
 PIN_BTN_C = 12
 PIN_BTN_DELAY = 14      # Optional: hold N s → delay; short → delay off
 PIN_BTN_TIMELAPSE = 15  # Optional: tap → TL divider; long → divider 1
+# AXIS_1..4 on Pico GP21..18 (also ORed in keypad mode). AXIS_5/6 unwired.
+PIN_BTN_AXIS_1 = 21
+PIN_BTN_AXIS_2 = 20
+PIN_BTN_AXIS_3 = 19
+PIN_BTN_AXIS_4 = 18
+PIN_BTN_AXIS_5 = None
+PIN_BTN_AXIS_6 = None
 
 # ---------------------------------------------------------------------------
 # Keypad matrix — used when JKS_INPUT_MODE == "keypad"
@@ -107,6 +117,11 @@ JKS_MOVE_TAP_MS = 333
 # ---------------------------------------------------------------------------
 # Left buttons move toward decreasing position when True.
 JKS_LEFT_IS_NEGATIVE = True
+JKS_LEFT2_IS_NEGATIVE = True
+JKS_LEFT3_IS_NEGATIVE = True
+JKS_LEFT4_IS_NEGATIVE = True
+JKS_LEFT5_IS_NEGATIVE = True
+JKS_LEFT6_IS_NEGATIVE = True
 # Swap L/R meaning for MOVE/FAST and joystick (handedness).
 # Runtime toggle: hold FAST_L + FAST_R ≥ 1 s.
 JKS_SWAP_LR = False
@@ -137,17 +152,19 @@ JKS_STORE_MARGIN_MM = 3.0
 # Treat carriage as "at" PosA/B/C within this distance (mm).
 JKS_AT_MARK_MM = 0.5
 # File on the Pico:
-# PosA,PosB,PosC[,tl_div,swap_lr,delay_s,joy_center,camera_fps[,tl_mode]]
-# tl_mode: "msm" | "continuous" (UI: Cont). Cont = ÷N crawl + CTRL_CAMERA hold-high.
+# PosA,PosB,PosC[,tl_div,swap_lr,delay_s,joy_center,camera_fps[,tl_mode[,joy_center_2]]]
+# tl_mode: "msm" | "continuous" (UI: Cont). Cont = ÷N crawl (no shutter).
+# MSM shutter is SliderMC CT.
 JKS_POSITIONS_FILE = "jks_positions.txt"
 
 # ---------------------------------------------------------------------------
 # Timelapse / camera
 # ---------------------------------------------------------------------------
-# Camera shutter FPS for CTRL_CAMERA intervalometer (MSM: period = tl_div / fps).
+# Camera shutter FPS for MSM interval (MC CT; period = tl_div / fps).
 JKS_CAMERA_FPS = 30
 JKS_CAMERA_FPS_STEPS = (24, 25, 30, 48, 50, 60)
 # Default TL≠1 style when file has no tl_mode: "msm" or "continuous" (Cont).
+# MSM: MC cameraTrigger / CT while stopped. Cont: speed÷N crawl only (no shutter).
 # Runtime toggled with T+D+OPTION and saved to JKS_POSITIONS_FILE.
 JKS_TL_MODE = "msm"
 # MSM: wait after shutter pulse before moving (ms).
@@ -185,5 +202,7 @@ try:
     if isinstance(_ov, dict):
         for _k, _v in _ov.items():
             globals()[_k] = _v
+        if "PIN_POT_JOYSTICK_1" not in _ov and "PIN_POT_JOYSTICK" in _ov:
+            PIN_POT_JOYSTICK_1 = _ov["PIN_POT_JOYSTICK"]
 except ImportError:
     pass

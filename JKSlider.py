@@ -6,13 +6,16 @@
 # Display / camera / RGB: UIC_config.py; motion: MC_config.py + MC_Client UART GP16/17.
 # Hardware overrides: SliderPins.py (one file per slider HW).
 # Default shipped config is keypad mode. Alternate button mode is also supported.
-#   POT_SPEED / POT_ACCEL / POT_JOYSTICK pots -> GP26 / GP27 / GP28 (ADC)
+#   POT_SPEED / POT_ACCEL / POT_JOYSTICK_1 pots -> GP26 / GP27 / GP28 (ADC)
 #   JKS_INPUT_MODE = "button": one GPIO per BTN_* (active-low, pull-ups)
 #     BTN_STOP=GP5, MOVE=6/7, FAST=8/9, A/B/C=10/11/12, OPTION=13, DELAY=14, TL=15
+#     AXIS_1..4=GP21..18 (AXIS_5/6 unwired on Pico).
 #   JKS_INPUT_MODE = "keypad" (default shipped): KP_ROW1..4=GP6-9, KP_COL1..3=GP10-12,
 #     optional KP_COL_4=GP13 (4-column LAYOUT in JKSliderKeypad.py).
 #     Discrete BTN_STOP on GP5; discrete OPTION on GP14 (ORed with matrix).
+#     AXIS_1..4 on GP21..18 (ORed); AXIS_5/6 unwired on Pico.
 #     Layout: JKSliderKeypad.py (or KEYPAD_LAYOUT in SliderPins).
+#   Shutter is SliderMC CT (mc.cameraTrigger); UIC PIN_CTRL_CAMERA is unused.
 #     See https://github.com/fablab-wue/SliderDoc/blob/main/uic/projects/jkslider/technical/panel.md
 #
 # Usage:
@@ -34,6 +37,13 @@ from button_state import (
     resolve_move_semantics,
     resolve_stop_combo,
 )
+from b4_logic import (
+    cap_panel_axes,
+    format_axis_oled,
+    mj_pct_from_axis_map,
+    selected_axis_order,
+    update_axis_selection,
+)
 
 _IDLE = 0
 _CRUISE = 1
@@ -47,6 +57,8 @@ _OLED_FLASH_MS = 1500
 _TL_DIVIDERS = (1, 5, 10, 25, 30, 50, 60, 100)
 
 _RED = (255, 0, 0)
+_WHITE = (255, 255, 255)
+_BLUE = (0, 0, 255)
 _OFF = (0, 0, 0)
 
 
@@ -161,6 +173,12 @@ _KNOWN_KEYPAD_NAMES = (
     "OPTION",
     "DELAY",
     "TIMELAPSE",
+    "AXIS_1",
+    "AXIS_2",
+    "AXIS_3",
+    "AXIS_4",
+    "AXIS_5",
+    "AXIS_6",
 )
 
 
@@ -266,6 +284,19 @@ class _KeypadScanner:
 
 def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
     """Build button objects + update_fn for button or keypad mode."""
+
+    def _axis_gpio(n):
+        p = getattr(jks, "PIN_BTN_AXIS_%d" % n, None)
+        if p is None:
+            return None
+        try:
+            return int(p)
+        except (TypeError, ValueError):
+            return None
+
+    def _vbtn():
+        return _Btn(None, debounce, long_ms)
+
     mode = str(getattr(jks, "JKS_INPUT_MODE", "button")).lower()
     if mode == "keypad":
         layout, ncols, truncated = _load_keypad_layout()
@@ -278,11 +309,16 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
         scanner = _KeypadScanner(row_pins, col_pins, layout)
         stop_pin = Pin(jks.PIN_BTN_STOP, Pin.IN, Pin.PULL_UP)
         option_pin = Pin(option_gpio, Pin.IN, Pin.PULL_UP)
+        axis_disc = []
+        i = 1
+        while i <= 6:
+            g = _axis_gpio(i)
+            axis_disc.append(
+                Pin(g, Pin.IN, Pin.PULL_UP) if g is not None else None
+            )
+            i += 1
         if truncated:
             dbg(3, "keypad layout truncated to 4x4")
-
-        def _vbtn():
-            return _Btn(None, debounce, long_ms)
 
         btn_move_l = _vbtn()
         btn_move_r = _vbtn()
@@ -298,6 +334,7 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
         btn_delay = _vbtn()
         btn_tl = _vbtn()
         btn_double_option = _vbtn()
+        axis_btns = [_vbtn() for _ in range(6)]
         by_name = {
             "MOVE_L": btn_move_l,
             "MOVE_R": btn_move_r,
@@ -310,16 +347,26 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
             "OPTION": btn_option,
             "DELAY": btn_delay,
             "TIMELAPSE": btn_tl,
+            "AXIS_1": axis_btns[0],
+            "AXIS_2": axis_btns[1],
+            "AXIS_3": axis_btns[2],
+            "AXIS_4": axis_btns[3],
+            "AXIS_5": axis_btns[4],
+            "AXIS_6": axis_btns[5],
         }
 
         def update_all():
             active = scanner.read()
-            # Discrete GP5 STOP always wins (real E-stop).
             if stop_pin.value() == 0:
                 active.add("STOP")
-            # Discrete GP14 OPTION ORed with matrix * (DOUBLE_OPTION stays matrix-only).
             if option_pin.value() == 0:
                 active.add("OPTION")
+            n = 1
+            while n <= 6:
+                p = axis_disc[n - 1]
+                if p is not None and p.value() == 0:
+                    active.add("AXIS_%d" % n)
+                n += 1
             for name, btn in by_name.items():
                 btn.update(name in active)
             btn_double_option.update("DOUBLE_OPTION" in active)
@@ -343,6 +390,14 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
         btn_delay = _Btn(jks.PIN_BTN_DELAY, debounce, long_ms)
         btn_tl = _Btn(jks.PIN_BTN_TIMELAPSE, debounce, long_ms)
         btn_double_option = _Btn(None, debounce, long_ms)
+        axis_btns = []
+        i = 1
+        while i <= 6:
+            g = _axis_gpio(i)
+            axis_btns.append(
+                _Btn(g, debounce, long_ms) if g is not None else _vbtn()
+            )
+            i += 1
 
         def update_all():
             for b in (
@@ -358,6 +413,8 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
                 btn_delay,
                 btn_tl,
             ):
+                b.update()
+            for b in axis_btns:
                 b.update()
             btn_double_option.update(False)
 
@@ -375,6 +432,12 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
         ("OPTION", btn_option),
         ("DELAY", btn_delay),
         ("TIMELAPSE", btn_tl),
+        ("AXIS_1", axis_btns[0]),
+        ("AXIS_2", axis_btns[1]),
+        ("AXIS_3", axis_btns[2]),
+        ("AXIS_4", axis_btns[3]),
+        ("AXIS_5", axis_btns[4]),
+        ("AXIS_6", axis_btns[5]),
     )
     return (
         btn_move_l,
@@ -389,6 +452,7 @@ def _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms):
         btn_delay,
         btn_tl,
         btn_double_option,
+        axis_btns,
         named_buttons,
         update_all,
     )
@@ -459,6 +523,19 @@ def _read_accel_mm_s2(filt, adc, min_accel_mm_s2, max_accel_mm_s2):
     return lo + norm * (hi - lo)
 
 
+def _optional_gpio(*names):
+    """First non-None integer GPIO among config attr names, else None."""
+    for name in names:
+        p = getattr(jks, name, None)
+        if p is None:
+            continue
+        try:
+            return int(p)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _clamp_joy_center(center):
     """Keep calibrated centre away from ends so both sides map cleanly."""
     try:
@@ -472,7 +549,9 @@ def _clamp_joy_center(center):
     return c
 
 
-def _read_joystick_mm_s(filt, adc, max_speed_mm_s, swap_lr, joy_center=0.5):
+def _read_joystick_mm_s(
+    filt, adc, max_speed_mm_s, swap_lr, joy_center=0.5, left_is_negative=True
+):
     """Centre-return joystick → signed speed (mm/s).
 
     joy_center is the calibrated 0-speed pot reading (0..1). Default 0.5.
@@ -505,7 +584,7 @@ def _read_joystick_mm_s(filt, adc, max_speed_mm_s, swap_lr, joy_center=0.5):
     if gamma != 1.0 and magnitude > 0.0:
         magnitude = magnitude ** gamma
     speed = sign * magnitude * max_speed_mm_s
-    if not jks.JKS_LEFT_IS_NEGATIVE:
+    if not left_is_negative:
         speed = -speed
     if swap_lr:
         speed = -speed
@@ -592,6 +671,7 @@ def _load_panel_state(soft_min, soft_max):
     swap_lr = bool(jks.JKS_SWAP_LR)
     delay_s = 0.0
     joy_center = 0.5
+    joy_center_2 = 0.5
     camera_fps = _clamp_camera_fps(getattr(jks, "JKS_CAMERA_FPS", 30))
     tl_mode = _clamp_tl_mode(getattr(jks, "JKS_TL_MODE", "msm"))
     delay_max = float(getattr(jks, "JKS_DELAY_MAX_S", 30.0))
@@ -621,6 +701,8 @@ def _load_panel_state(soft_min, soft_max):
                 camera_fps = _clamp_camera_fps(parts[7])
             if len(parts) >= 9:
                 tl_mode = _clamp_tl_mode(parts[8])
+            if len(parts) >= 10:
+                joy_center_2 = _clamp_joy_center(float(parts[9]))
     except Exception:
         pass
     return (
@@ -631,6 +713,7 @@ def _load_panel_state(soft_min, soft_max):
         swap_lr,
         delay_s,
         joy_center,
+        joy_center_2,
         camera_fps,
         tl_mode,
     )
@@ -646,11 +729,12 @@ def _save_panel_state(
     joy_center=0.5,
     camera_fps=30,
     tl_mode="msm",
+    joy_center_2=0.5,
 ):
     try:
         with open(jks.JKS_POSITIONS_FILE, "w") as f:
             f.write(
-                "%s,%s,%s,%d,%d,%.3f,%.4f,%d,%s\n"
+                "%s,%s,%s,%d,%d,%.3f,%.4f,%d,%s,%.4f\n"
                 % (
                     pos_a,
                     pos_b,
@@ -661,6 +745,7 @@ def _save_panel_state(
                     _clamp_joy_center(joy_center),
                     _clamp_camera_fps(camera_fps),
                     _clamp_tl_mode(tl_mode),
+                    _clamp_joy_center(joy_center_2),
                 )
             )
     except Exception as exc:
@@ -799,9 +884,10 @@ async def main():
 
     adc_speed = ADC(Pin(jks.PIN_POT_SPEED))
     adc_accel = ADC(Pin(jks.PIN_POT_ACCEL))
-    adc_joy = None
-    if jks.PIN_POT_JOYSTICK is not None:
-        adc_joy = ADC(Pin(jks.PIN_POT_JOYSTICK))
+    joy1_gpio = _optional_gpio("PIN_POT_JOYSTICK_1", "PIN_POT_JOYSTICK")
+    joy2_gpio = _optional_gpio("PIN_POT_JOYSTICK_2")
+    adc_joy = ADC(Pin(joy1_gpio)) if joy1_gpio is not None else None
+    adc_joy2 = ADC(Pin(joy2_gpio)) if joy2_gpio is not None else None
     filt_speed = _PotFilter(
         getattr(jks, "JKS_POT_OVERSAMPLE", 8),
         getattr(jks, "JKS_POT_EMA_ALPHA", 0.2),
@@ -812,13 +898,15 @@ async def main():
         getattr(jks, "JKS_ACCEL_EMA_ALPHA", 0.15),
         getattr(jks, "JKS_ACCEL_HYST", 0.01),
     )
-    filt_joy = None
-    if adc_joy is not None:
-        filt_joy = _PotFilter(
-            getattr(jks, "JKS_JOY_OVERSAMPLE", 8),
-            getattr(jks, "JKS_JOY_EMA_ALPHA", 0.3),
-            getattr(jks, "JKS_JOY_HYST", 0.006),
-        )
+    _joy_os = getattr(jks, "JKS_JOY_OVERSAMPLE", 8)
+    _joy_ema = getattr(jks, "JKS_JOY_EMA_ALPHA", 0.3)
+    _joy_hyst = getattr(jks, "JKS_JOY_HYST", 0.006)
+    filt_joy = (
+        _PotFilter(_joy_os, _joy_ema, _joy_hyst) if adc_joy is not None else None
+    )
+    filt_joy2 = (
+        _PotFilter(_joy_os, _joy_ema, _joy_hyst) if adc_joy2 is not None else None
+    )
     debounce = jks.JKS_BTN_DEBOUNCE_MS
     long_ms = jks.JKS_LONG_PRESS_MS
     stop_halt_ms = getattr(jks, "JKS_STOP_HALT_MS", 1000)
@@ -839,6 +927,7 @@ async def main():
         btn_delay,
         btn_tl,
         btn_double_option,
+        axis_btns,
         named_buttons,
         update_all,
     ) = _make_panel_inputs(debounce, long_ms, stop_halt_ms, stop_disable_ms)
@@ -866,9 +955,23 @@ async def main():
         swap_lr,
         action_delay_s,
         joy_center,
+        joy_center_2,
         camera_fps,
         tl_mode,
     ) = _load_panel_state(soft_min, mc.slider_max)
+    _left_default = bool(jks.JKS_LEFT_IS_NEGATIVE)
+    left_neg = [
+        _left_default,
+        bool(getattr(jks, "JKS_LEFT2_IS_NEGATIVE", _left_default)),
+        bool(getattr(jks, "JKS_LEFT3_IS_NEGATIVE", _left_default)),
+        bool(getattr(jks, "JKS_LEFT4_IS_NEGATIVE", _left_default)),
+        bool(getattr(jks, "JKS_LEFT5_IS_NEGATIVE", _left_default)),
+        bool(getattr(jks, "JKS_LEFT6_IS_NEGATIVE", _left_default)),
+    ]
+    panel_axes = cap_panel_axes(mc.getAxisCount())
+    selected = frozenset((1,))
+    prev_held_n = 0
+    cam_pulse_count = 0
     tl_index = _tl_index_for(tl_div)
     delay_max_s = float(getattr(jks, "JKS_DELAY_MAX_S", 30.0))
     oled_rotate_ms = int(getattr(jks, "JKS_DSP_EXTRA_ROTATE_MS", 1000))
@@ -937,12 +1040,12 @@ async def main():
             joy_center,
             camera_fps,
             tl_mode,
+            joy_center_2,
         )
 
     def _sync_camera_mode():
-        # Cont + TL≠1: hold-high like video; speed still uses tl_div.
-        cam_div = 1 if (tl_mode == "continuous" and tl_div != 1) else tl_div
-        ui.setCameraMode(cam_div, camera_fps)
+        # Shutter is MC CT in MSM only; Cont is crawl (no UIC hold-high).
+        return
 
     def _tl_status_line():
         if tl_div == 1:
@@ -958,7 +1061,7 @@ async def main():
             if secs < 0:
                 secs = 0
             return "%02d:%02d" % (secs // 60, secs % 60)
-        frames = ui.getCameraPulseCount()
+        frames = cam_pulse_count
         fps = camera_fps if camera_fps > 0 else 1
         secs = frames // fps
         return "%02d:%02d  %d" % (secs // 60, secs % 60, frames)
@@ -1085,6 +1188,23 @@ async def main():
         oled_flash = msg
         oled_flash_until = time.ticks_add(time.ticks_ms(), _OLED_FLASH_MS)
 
+    def _axis_signed_pct(ax, direction_positive):
+        if left_neg[ax - 1]:
+            pct = 100 if direction_positive else -100
+        else:
+            pct = -100 if direction_positive else 100
+        if swap_lr:
+            pct = -pct
+        return pct
+
+    def _jog_selected(direction_positive, speed_mm_s):
+        axis_pct = {}
+        for ax in selected:
+            ia = int(ax)
+            if 1 <= ia <= panel_axes:
+                axis_pct[ia] = _axis_signed_pct(ia, direction_positive)
+        mc.jog(speed_mm_s, *mj_pct_from_axis_map(axis_pct, panel_axes))
+
     def _peek_marks():
         _flash_oled(
             "A:%.0f B:%.0f C:%.0f" % (pos_a, pos_b, pos_c)
@@ -1113,11 +1233,19 @@ async def main():
     def _want_msm():
         return tl_div != 1 and tl_mode == "msm"
 
+    def _fire_shutter():
+        nonlocal cam_pulse_count
+        pulse_ms = int(getattr(uic_cfg, "CTRL_CAMERA_PULSE_MS", 100))
+        if pulse_ms < 1:
+            pulse_ms = 1
+        mc.cameraTrigger(pulse_ms)
+        cam_pulse_count += 1
+
     def _msm_interval_ms():
         fps = camera_fps if camera_fps > 0 else 1
         div = tl_div if tl_div > 0 else 1
         period = int(1000.0 * float(div) / float(fps))
-        pulse_ms = int(getattr(config, "CTRL_CAMERA_PULSE_MS", 100))
+        pulse_ms = int(getattr(uic_cfg, "CTRL_CAMERA_PULSE_MS", 100))
         if pulse_ms < 1:
             pulse_ms = 1
         if period < pulse_ms + 10:
@@ -1127,7 +1255,7 @@ async def main():
     def _msm_move_budget_s():
         """Seconds available for the hop inside one frame interval."""
         T = _msm_interval_ms() * 0.001
-        pulse_s = int(getattr(config, "CTRL_CAMERA_PULSE_MS", 100)) * 0.001
+        pulse_s = int(getattr(uic_cfg, "CTRL_CAMERA_PULSE_MS", 100)) * 0.001
         return T - (msm_exposure_ms * 0.001) - (msm_settle_ms * 0.001) - pulse_s
 
     def _msm_max_delta(v_mm_s, a_mm_s2):
@@ -1179,6 +1307,7 @@ async def main():
         nonlocal loop_toward_p2, loop_dwell_until, driver_on, goto_t0_ms
         nonlocal msm_active, msm_phase, msm_phase_until, msm_delta
         nonlocal msm_end_pos, msm_dir, msm_frame_due, msm_kind
+        nonlocal cam_pulse_count
         if not _speed_ok(speed_mm_s):
             _flash_oled("Set SPEED")
             return False
@@ -1192,7 +1321,7 @@ async def main():
         driver_on = True
         _apply_full_motion_params(speed_mm_s, accel_mm_s2)
         ui.setCameraManual(True)
-        ui.resetCameraPulseCount()
+        cam_pulse_count = 0
         msm_delta = delta
         msm_active = True
         msm_phase = "shoot"
@@ -1330,7 +1459,7 @@ async def main():
                 return
             msm_delta = d
             _apply_full_motion_params(speed_mm_s, accel_mm_s2)
-            ui.pulseCamera()
+            _fire_shutter()
             msm_phase = "expose"
             msm_phase_until = time.ticks_add(now, msm_exposure_ms)
             # Cadence deadline for this frame's cycle (shoot → next shoot).
@@ -1383,7 +1512,7 @@ async def main():
         if msm_phase == "final_shoot":
             if mc.isMoving():
                 return
-            ui.pulseCamera()
+            _fire_shutter()
             msm_phase = "final_expose"
             msm_phase_until = time.ticks_add(now, msm_exposure_ms)
             return
@@ -1444,7 +1573,7 @@ async def main():
                 mc.setSpeed(max(eff_speed, config.MIN_SPEED_MM_S))
                 mc.moveTo(tgt)
         elif mode == _CRUISE and cruise_dir != 0:
-            mc.move(_signed(cruise_dir > 0, eff_speed))
+            _jog_selected(cruise_dir > 0, eff_speed)
             if not cruise_locked:
                 pause_resume_guard = True
         elif mode == _LOOP and loop_target:
@@ -1473,9 +1602,9 @@ async def main():
             _apply_full_motion_params(max_spd, max_acc)
             jog = max_spd
             if fast_l.pressed() and not fast_r.pressed():
-                mc.move(_signed(False, jog))
+                _jog_selected(False, jog)
             elif fast_r.pressed() and not fast_l.pressed():
-                mc.move(_signed(True, jog))
+                _jog_selected(True, jog)
         # _JOYSTICK: next loop restores from stick
         ui.setCameraMotionActive(False)
         dbg(3, "Resume")
@@ -1502,7 +1631,7 @@ async def main():
             mode = _CRUISE
             goto_target = None
             goto_t0_ms = None
-            mc.move(_signed(direction > 0, eff_speed))
+            _jog_selected(direction > 0, eff_speed)
             dbg(3, "Cruise", "R" if direction > 0 else "L")
         elif kind == "goto":
             name, pos = action[1], action[2]
@@ -1733,6 +1862,32 @@ async def main():
     delay_wait_period = max(2 * delay_wait_half, 2)
     panel_led_kind = None  # delay_wait|delay|tl|loop_idle|loop_move|halt_flash|None
 
+    def _show_axis_sel(mask, flash=True):
+        order = selected_axis_order(mask)
+        ui.setOledAxis(order[0] if order else 1)
+        if flash:
+            _flash_oled(format_axis_oled(mask))
+            n = len(mask)
+            if n < 1:
+                n = 1
+            if n > 6:
+                n = 6
+            ui.ledFlash(_WHITE, n, flash_on, flash_off)
+
+    async def _home_motors():
+        n = int(mc.getMotorCount())
+        if n < 1:
+            n = 1
+        ax = 1
+        while ax <= n:
+            mc.home(ax)
+            while mc.isMoving() or mc.isHoming():
+                await asyncio.sleep_ms(20)
+            if mc.isDRVErrorActive():
+                return False
+            ax += 1
+        return True
+
     def _halt_led_flash():
         nonlocal panel_led_kind
         ui.ledClearAdd()
@@ -1819,20 +1974,18 @@ async def main():
         dbg(3, "Homing")
         mode = _HOMING
         _push_oled()
-        mc.home()
-        while mc.isMoving():
-            await asyncio.sleep_ms(20)
-        if mc.isDRVErrorActive():
-            mode = _IDLE
+        ok = await _home_motors()
+        mode = _IDLE
+        if not ok:
             _flash_oled("Homing abort")
             dbg(2, "Homing abort")
         else:
-            mode = _IDLE
             _flash_oled("Homed")
             dbg(3, "Ready", round(mc.getPosition(), 2))
     else:
         mode = _IDLE
         dbg(3, "Ready (no homing)", round(mc.getPosition(), 2))
+    ui.setOledAxis(1)
     _push_oled()
     dbg(4, "marks", round(pos_a, 2), round(pos_b, 2), round(pos_c, 2))
     dbg(
@@ -1849,7 +2002,9 @@ async def main():
         "delay",
         action_delay_s,
         "joy",
-        "GP{}".format(jks.PIN_POT_JOYSTICK) if adc_joy is not None else "off",
+        "GP{}".format(joy1_gpio) if adc_joy is not None else "off",
+        "joy2",
+        "GP{}".format(joy2_gpio) if adc_joy2 is not None else "off",
     )
 
     # Clamp MC ceilings with panel config; all panel max uses these attributes.
@@ -1904,6 +2059,40 @@ async def main():
             _sync_panel_led(move_btn_down)
 
             option = btn_option.pressed()
+            held_axes = []
+            shorts = []
+            longs = []
+            ai = 1
+            axis_edge = False
+            for b in axis_btns:
+                if b.pressed():
+                    held_axes.append(ai)
+                if b.short_press:
+                    shorts.append(ai)
+                if b.long_press:
+                    longs.append(ai)
+                if b.edge_press:
+                    axis_edge = True
+                ai += 1
+            new_sel, sel_invalid = update_axis_selection(
+                held_axes,
+                shorts,
+                longs,
+                option,
+                selected,
+                panel_axes,
+                prev_held_n,
+            )
+            prev_held_n = len(held_axes)
+            if sel_invalid:
+                if axis_edge or shorts or longs:
+                    ui.ledFlash(_BLUE, 3, flash_on, flash_off)
+                    dbg(3, "JKS axis invalid", held_axes)
+            elif new_sel != selected:
+                selected = new_sel
+                _show_axis_sel(selected, flash=True)
+                dbg(3, "JKS axis", tuple(sorted(selected)))
+
             move_sem = resolve_move_semantics(
                 move_l, move_r, option, move_tap_ms
             )
@@ -2190,8 +2379,15 @@ async def main():
                         goto_target = None
                         loop_target = None
                         loop_dwell_until = None
-                        mc.home()
-                        dbg(3, "Homing")
+                        _push_oled()
+                        ok = await _home_motors()
+                        mode = _IDLE
+                        if not ok:
+                            _flash_oled("Homing abort")
+                            dbg(2, "Homing abort")
+                        else:
+                            _flash_oled("Homed")
+                            dbg(3, "Homing")
                     else:
                         _flash_oled("No homing")
                         dbg(3, "No homing")
@@ -2375,20 +2571,30 @@ async def main():
                     abc_fired = True
                     combo_lock = True
                     if abc_option_latched:
-                        # OPTION + A + B + C: recalibrate joystick 0-speed.
+                        # OPTION + A + B + C: recalibrate each fitted stick.
                         if mc.isMoving() or mc.isHoming():
                             _flash_oled("Stop first")
                             dbg(2, "Joy centre busy")
-                        elif adc_joy is None or filt_joy is None:
+                        elif adc_joy is None and adc_joy2 is None:
                             _flash_oled("No joystick")
                             dbg(2, "Joy centre none")
                         else:
-                            joy_center = _clamp_joy_center(
-                                filt_joy.read_norm(adc_joy)
-                            )
+                            if adc_joy is not None and filt_joy is not None:
+                                joy_center = _clamp_joy_center(
+                                    filt_joy.read_norm(adc_joy)
+                                )
+                            if adc_joy2 is not None and filt_joy2 is not None:
+                                joy_center_2 = _clamp_joy_center(
+                                    filt_joy2.read_norm(adc_joy2)
+                                )
                             _persist()
                             _flash_oled("Joy 0 set")
-                            dbg(3, "Joy centre", round(joy_center, 4))
+                            dbg(
+                                3,
+                                "Joy centre",
+                                round(joy_center, 4),
+                                round(joy_center_2, 4),
+                            )
                     else:
                         pos_a, pos_b, pos_c = _default_positions(
                             soft_min, mc.slider_max
@@ -2506,7 +2712,7 @@ async def main():
             joy_active = False
             cruise_boost = False
             fast_dir = 0
-            if adc_joy is not None:
+            if adc_joy is not None or adc_joy2 is not None:
                 if option:
                     joy_ref = float(mc.max_speed)
                     _apply_motion_params(
@@ -2514,10 +2720,42 @@ async def main():
                     )
                 else:
                     joy_ref = max(speed, config.MIN_SPEED_MM_S)
-                joy_cmd = _read_joystick_mm_s(
-                    filt_joy, adc_joy, joy_ref, swap_lr, joy_center
-                )
-                if abs(joy_cmd) >= config.MIN_SPEED_MM_S:
+                order = selected_axis_order(selected)
+                axis_speeds = {}
+                if (
+                    adc_joy is not None
+                    and filt_joy is not None
+                    and order
+                ):
+                    ax = order[0]
+                    axis_speeds[ax] = _read_joystick_mm_s(
+                        filt_joy,
+                        adc_joy,
+                        joy_ref,
+                        swap_lr,
+                        joy_center,
+                        left_is_negative=left_neg[ax - 1],
+                    )
+                if (
+                    adc_joy2 is not None
+                    and filt_joy2 is not None
+                    and len(order) >= 2
+                ):
+                    ax = order[1]
+                    axis_speeds[ax] = _read_joystick_mm_s(
+                        filt_joy2,
+                        adc_joy2,
+                        joy_ref,
+                        swap_lr,
+                        joy_center_2,
+                        left_is_negative=left_neg[ax - 1],
+                    )
+                max_abs = 0.0
+                for spd in axis_speeds.values():
+                    a = abs(spd)
+                    if a > max_abs:
+                        max_abs = a
+                if max_abs >= config.MIN_SPEED_MM_S:
                     joy_active = True
                     was_loop = mode == _LOOP
                     had_pending = pending is not None
@@ -2532,7 +2770,18 @@ async def main():
                         else:
                             _flash_oled("Joy")
                         dbg(3, "Joystick")
-                    mc.move(joy_cmd)
+                    axis_pct = {}
+                    for ax, spd in axis_speeds.items():
+                        pct = int(round(100.0 * spd / max_abs))
+                        if pct > 100:
+                            pct = 100
+                        elif pct < -100:
+                            pct = -100
+                        axis_pct[ax] = pct
+                    mc.jog(
+                        max_abs,
+                        *mj_pct_from_axis_map(axis_pct, panel_axes),
+                    )
                     mode = _JOYSTICK
                     cruise_dir = 0
                     cruise_locked = False
@@ -2541,7 +2790,7 @@ async def main():
                     loop_dwell_until = None
                     goto_target = None
                 elif mode == _JOYSTICK:
-                    mc.move(0.0)
+                    mc.stop()
                     mode = _IDLE
                     dbg(3, "Joystick center")
 
@@ -2570,7 +2819,7 @@ async def main():
                         cruise_dir = _mv_dir
                         cruise_locked = False
                         goto_target = None
-                        mc.move(_signed(_mv_dir > 0, eff_speed))
+                        _jog_selected(_mv_dir > 0, eff_speed)
                         dbg(3, "Cruise", "R" if _mv_dir > 0 else "L")
                     else:
                         cruise_locked = False
@@ -2632,7 +2881,7 @@ async def main():
                     else:
                         cruise_speed = eff_speed
                         mc.setSpeed(cruise_speed)
-                    mc.move(_signed(cruise_dir > 0, cruise_speed))
+                    _jog_selected(cruise_dir > 0, cruise_speed)
                     if mc.isAtHardLimit():
                         mode = _IDLE
                         cruise_dir = 0
@@ -2660,14 +2909,14 @@ async def main():
                         cruise_locked = False
                         fast_dir = -1
                         goto_target = None
-                        mc.move(_signed(False, fast_speed))
+                        _jog_selected(False, fast_speed)
                     elif fast_r.pressed() and not fast_l.pressed():
                         mode = _FAST
                         cruise_dir = 0
                         cruise_locked = False
                         fast_dir = 1
                         goto_target = None
-                        mc.move(_signed(True, fast_speed))
+                        _jog_selected(True, fast_speed)
                 elif mode == _FAST:
                     mc.stop()
                     mode = _IDLE

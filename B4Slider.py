@@ -1,4 +1,4 @@
-# B4Slider — MOVE_L/R + AXIS_1..5 camera slider panel (OPTION, SET,
+# B4Slider — MOVE_L/R + AXIS_1..6 camera slider panel (OPTION, SET,
 # SPEED/ACCEL pot or QD encoder). Recommended silk is AXIS 1/2/3.
 #
 # Soft limits are the A/B working window per axis. Reuses MC_Client + UIC_Base.
@@ -23,11 +23,13 @@ from button_state import (
 )
 from b4_logic import (
     apply_encoder_steps,
+    cap_panel_axes,
     clamp_enter,
     format_axis_oled,
     qd_detents,
-    resolve_axis_mask,
     rotary_boot_value,
+    selected_axis_order,
+    update_axis_selection,
 )
 
 _IDLE = 0
@@ -281,16 +283,21 @@ async def main():
     btn_option = ButtonAdapter(lambda: option_pin.value() == 0, debounce, long_ms, extra_ms)
     btn_set = _Btn(b4s.PIN_BTN_SET, debounce, long_ms, extra_ms, learn_ms)
 
-    ax1_pin = Pin(b4s.PIN_BTN_AXIS_1, Pin.IN, Pin.PULL_UP)
-    ax2_pin = Pin(b4s.PIN_BTN_AXIS_2, Pin.IN, Pin.PULL_UP)
-    ax3_pin = Pin(b4s.PIN_BTN_AXIS_3, Pin.IN, Pin.PULL_UP)
-    ax4_pin = Pin(b4s.PIN_BTN_AXIS_4, Pin.IN, Pin.PULL_UP)
-    ax5_pin = Pin(b4s.PIN_BTN_AXIS_5, Pin.IN, Pin.PULL_UP)
-    btn_ax1 = ButtonAdapter(lambda: ax1_pin.value() == 0, debounce, long_ms, extra_ms)
-    btn_ax2 = ButtonAdapter(lambda: ax2_pin.value() == 0, debounce, long_ms, extra_ms)
-    btn_ax3 = ButtonAdapter(lambda: ax3_pin.value() == 0, debounce, long_ms, extra_ms)
-    btn_ax4 = ButtonAdapter(lambda: ax4_pin.value() == 0, debounce, long_ms, extra_ms)
-    btn_ax5 = ButtonAdapter(lambda: ax5_pin.value() == 0, debounce, long_ms, extra_ms)
+    def _axis_pin(pin_no):
+        if pin_no is None:
+            return None
+        return Pin(int(pin_no), Pin.IN, Pin.PULL_UP)
+
+    def _axis_adapter(pin):
+        if pin is None:
+            return ButtonAdapter(lambda: False, debounce, long_ms, extra_ms)
+        return ButtonAdapter(lambda p=pin: p.value() == 0, debounce, long_ms, extra_ms)
+
+    ax_pins = [
+        _axis_pin(getattr(b4s, "PIN_BTN_AXIS_%d" % i, None)) for i in range(1, 7)
+    ]
+    axis_btns = [_axis_adapter(p) for p in ax_pins]
+    btn_ax1, btn_ax2, btn_ax3, btn_ax4, btn_ax5, btn_ax6 = axis_btns
 
     axis_count = int(mc.getAxisCount())
     if axis_count < 1:
@@ -298,18 +305,15 @@ async def main():
     motor_count = int(mc.getMotorCount())
     if motor_count < 1:
         motor_count = 1
-    panel_axes = 5 if axis_count > 5 else axis_count
+    panel_axes = cap_panel_axes(axis_count)
 
     def update_all():
         move_l.update()
         move_r.update()
         btn_option.update()
         btn_set.update()
-        btn_ax1.update()
-        btn_ax2.update()
-        btn_ax3.update()
-        btn_ax4.update()
-        btn_ax5.update()
+        for b in axis_btns:
+            b.update()
 
     if getattr(b4s, "B4S_BOOT_UNLOCK", True):
         await _wait_boot_unlock(ui, btn_option, update_all)
@@ -341,7 +345,7 @@ async def main():
         lo = []
         hi = []
         i = 1
-        while i <= 5:
+        while i <= 6:
             lo.append(_envelope_side(_mc_env_min(i), fb_min))
             hi.append(_envelope_side(_mc_env_max(i), fb_max))
             i += 1
@@ -357,9 +361,11 @@ async def main():
         bool(getattr(b4s, "B4S_LEFT3_IS_NEGATIVE", b4s.B4S_LEFT_IS_NEGATIVE)),
         bool(getattr(b4s, "B4S_LEFT4_IS_NEGATIVE", b4s.B4S_LEFT_IS_NEGATIVE)),
         bool(getattr(b4s, "B4S_LEFT5_IS_NEGATIVE", b4s.B4S_LEFT_IS_NEGATIVE)),
+        bool(getattr(b4s, "B4S_LEFT6_IS_NEGATIVE", b4s.B4S_LEFT_IS_NEGATIVE)),
     ]
 
     selected = frozenset((1,))
+    prev_held_n = 0
 
     def apply_soft_limits():
         n = panel_axes
@@ -479,35 +485,29 @@ async def main():
 
     def axis_pressed_list():
         held = []
-        if btn_ax1.pressed():
-            held.append(1)
-        if btn_ax2.pressed():
-            held.append(2)
-        if btn_ax3.pressed():
-            held.append(3)
-        if btn_ax4.pressed():
-            held.append(4)
-        if btn_ax5.pressed():
-            held.append(5)
+        i = 1
+        for b in axis_btns:
+            if b.pressed():
+                held.append(i)
+            i += 1
         return held
 
     def axis_edge_press():
-        return (
-            btn_ax1.edge_press
-            or btn_ax2.edge_press
-            or btn_ax3.edge_press
-            or btn_ax4.edge_press
-            or btn_ax5.edge_press
-        )
+        for b in axis_btns:
+            if b.edge_press:
+                return True
+        return False
 
     def show_selection(mask, flash=False):
+        order = selected_axis_order(mask)
+        ui.setOledAxis(order[0] if order else 1)
         ui.setOledText(format_axis_oled(mask))
         if flash:
             n = len(mask)
             if n < 1:
                 n = 1
-            if n > 5:
-                n = 5
+            if n > 6:
+                n = 6
             ui.ledFlash(_WHITE, n, flash_on, flash_off)
 
     def get_pos(axis_1based):
@@ -519,7 +519,9 @@ async def main():
             return mc.getPosition3()
         if axis_1based == 4:
             return mc.getPosition4()
-        return mc.getPosition5()
+        if axis_1based == 5:
+            return mc.getPosition5()
+        return mc.getPosition6()
 
     def target_for_dir(axis_index, direction):
         lo = soft_lo[axis_index]
@@ -559,7 +561,7 @@ async def main():
 
     def start_selected_cruise(direction, locked, speed_boost=False, accel_boost=False):
         nonlocal mode, cruise_dir, cruise_locked, option_boost
-        args = [None, None, None, None, None]
+        args = [None, None, None, None, None, None]
         for ax in selected:
             if ax <= panel_axes:
                 args[ax - 1] = target_for_dir(ax - 1, direction)
@@ -568,7 +570,7 @@ async def main():
         mc.setSpeed(spd)
         mc.setAcceleration(acc)
         mc.enable(True)
-        mc.moveTo(args[0], args[1], args[2], args[3], args[4])
+        mc.moveTo(args[0], args[1], args[2], args[3], args[4], args[5])
         cruise_dir = direction
         cruise_locked = locked
         option_boost = speed_boost
@@ -598,13 +600,14 @@ async def main():
     def power_up_reset():
         nonlocal soft_lo, soft_hi, loop_armed, mode
         nonlocal cruise_dir, cruise_locked, accel_preset, accel_cmd, option_boost
-        nonlocal driver_enabled, selected, speed_mm_s
+        nonlocal driver_enabled, selected, prev_held_n, speed_mm_s
         nonlocal speed_at_limit, accel_at_limit
         mc.halt()
         soft_lo = list(env_lo)
         soft_hi = list(env_hi)
         apply_soft_limits()
         selected = frozenset((1,))
+        prev_held_n = 0
         show_selection(selected, flash=False)
         loop_armed = False
         mode = _IDLE
@@ -685,10 +688,29 @@ async def main():
 
             ui.set_commanded(speed_mm_s=speed_mm_s, accel_mm_s2=accel_cmd)
 
+            opt = btn_option.pressed()
             held_axes = axis_pressed_list()
-            new_sel, sel_invalid = resolve_axis_mask(held_axes, panel_axes, selected)
+            shorts = []
+            longs = []
+            ai = 1
+            for b in axis_btns:
+                if b.short_press:
+                    shorts.append(ai)
+                if b.long_press:
+                    longs.append(ai)
+                ai += 1
+            new_sel, sel_invalid = update_axis_selection(
+                held_axes,
+                shorts,
+                longs,
+                opt,
+                selected,
+                panel_axes,
+                prev_held_n,
+            )
+            prev_held_n = len(held_axes)
             if sel_invalid:
-                if axis_edge_press():
+                if axis_edge_press() or shorts or longs:
                     ui.ledFlash(_BLUE, flash_half_count, flash_on, flash_off)
                     dbg(3, "B4S axis invalid", held_axes)
             elif new_sel != selected:
@@ -696,7 +718,6 @@ async def main():
                 show_selection(selected, flash=True)
                 dbg(3, "B4S axis", tuple(sorted(selected)))
 
-            opt = btn_option.pressed()
             st = btn_set.pressed()
             move_sem = resolve_move_semantics(
                 move_l.state, move_r.state, opt, move_tap_ms

@@ -22,6 +22,7 @@ PIN_BTN_AXIS_2 = 11
 PIN_BTN_AXIS_3 = 10
 PIN_BTN_AXIS_4 = 9
 PIN_BTN_AXIS_5 = 8
+PIN_BTN_AXIS_6 = 22
 PIN_BTN_OPTION = 13
 PIN_BTN_SET = 5           # was STOP on JKSlider discrete map
 
@@ -89,6 +90,7 @@ B4S_LEFT2_IS_NEGATIVE = True
 B4S_LEFT3_IS_NEGATIVE = True
 B4S_LEFT4_IS_NEGATIVE = True
 B4S_LEFT5_IS_NEGATIVE = True
+B4S_LEFT6_IS_NEGATIVE = True
 B4S_SOFT_FALLBACK_MIN = -2000.0
 B4S_SOFT_FALLBACK_MAX = 2000.0
 # Boot homing: motors 1..getMotorCount() (do not home servos).

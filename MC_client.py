@@ -1146,6 +1146,9 @@ class MC_Client:
     def getPosition5(self):
         return self._pos_mm_5 if self._pos_mm_5 is not None else 0.0
 
+    def getPosition6(self):
+        return self._pos_mm_6 if self._pos_mm_6 is not None else 0.0
+
     def getSpeed(self):
         return self._act_vel_mm_s if self._act_vel_mm_s is not None else 0.0
 
@@ -1267,6 +1270,31 @@ class MC_Client:
         self._speed_mm_s = abs(speed)
         self._cmd("SS", _fmt_arg(abs(speed)))
         self._cmd("MJ", 100 if speed > 0 else -100)
+
+    def moveJoy(self, *pcts):
+        """Packed joystick ``MJ`` percents. ``0`` is a real slot (no ``_`` skip)."""
+        n = int(self._axis) if self._axis else 1
+        if n < 1:
+            n = 1
+        if n > 6:
+            n = 6
+        slots = [int(p) for p in pcts[:n]]
+        while len(slots) < n:
+            slots.append(0)
+        if all(s == 0 for s in slots):
+            self._cmd("MS")
+            return
+        self._cmd("MJ", *slots)
+
+    def jog(self, speed_mm_s, *pcts):
+        """``SS`` then packed ``MJ``. All-zero pcts → ``MS``."""
+        speed = float(speed_mm_s)
+        if abs(speed) < 1e-9 or not pcts or all(int(p) == 0 for p in pcts):
+            self._cmd("MS")
+            return
+        self._speed_mm_s = abs(speed)
+        self._cmd("SS", _fmt_arg(abs(speed)))
+        self.moveJoy(*pcts)
 
     def home(self, axis=None):
         """Homing. ``axis`` None → ``MH`` (MC defaults to 1); ``1``/``2``/``3`` → ``MH n``.
