@@ -260,7 +260,7 @@ class MC_Client:
     # --- lifecycle ---------------------------------------------------------
 
     async def start(self, banner_timeout_s=5.0):
-        """Unlock with ``\\n``, require ``# MC V1 -`` plus ``VP:1``, then ``SV 1``.
+        """Unlock with ``VH\\n``, require ``# MC V1 -`` plus ``VP:1``, then ``SV 1``.
 
         On success, reads MC config via ``CG`` into ``mc_config`` /
         envelopes, then session window via ``GL``/``GR``. Seeds ``SS``/``SA``
@@ -314,7 +314,7 @@ class MC_Client:
             if time.ticks_diff(deadline, time.ticks_ms()) <= 0:
                 break
             try:
-                self._uart.write(b"\n")
+                self._uart.write(b"VH\n")
             except Exception as exc:
                 self._mark_lost(exc)
                 await asyncio.sleep_ms(100)
