@@ -1104,29 +1104,33 @@ class MC_Client:
         self._enabled = bool(on)
         self._cmd("SE", 1 if self._enabled else 0)
 
-    def estimateMoveTime(self, distance_mm, speed_mm_s, accel_mm_s2):
+    def estimateMoveTime(self, distance_mm, speed_mm_s, accel_mm_s2, decel_mm_s2=None):
         d = abs(float(distance_mm))
         if d < 1e-9:
             return 0.0
         v = abs(float(speed_mm_s))
         a = abs(float(accel_mm_s2))
-        if v < cfg.MIN_SPEED_MM_S or a < cfg.MIN_SPEED_MM_S:
+        dcl = a if decel_mm_s2 is None else abs(float(decel_mm_s2))
+        if v < cfg.MIN_SPEED_MM_S or a < cfg.MIN_SPEED_MM_S or dcl < cfg.MIN_SPEED_MM_S:
             return 0.0
-        d_r = math.pi * v * v / (4.0 * a)
-        t_r = math.pi * v / (2.0 * a)
-        if 2.0 * d_r <= d:
-            return 2.0 * t_r + (d - 2.0 * d_r) / v
-        v_pk = math.sqrt(2.0 * a * d / math.pi)
-        return math.pi * v_pk / a
+        d_a = math.pi * v * v / (4.0 * a)
+        d_d = math.pi * v * v / (4.0 * dcl)
+        t_a = math.pi * v / (2.0 * a)
+        t_d = math.pi * v / (2.0 * dcl)
+        if d_a + d_d <= d:
+            return t_a + t_d + (d - d_a - d_d) / v
+        v_pk = math.sqrt(4.0 * d / (math.pi * (1.0 / a + 1.0 / dcl)))
+        return math.pi * v_pk * (a + dcl) / (2.0 * a * dcl)
 
-    def estimateMoveTimeTo(self, position_mm, speed_mm_s=None, accel_mm_s2=None):
+    def estimateMoveTimeTo(self, position_mm, speed_mm_s=None, accel_mm_s2=None,
+                           decel_mm_s2=None):
         """Stop-to-stop sine-ramp time from current position to ``position_mm``."""
         if speed_mm_s is None:
             speed_mm_s = self._speed_mm_s if self._speed_mm_s is not None else 0.0
         if accel_mm_s2 is None:
             accel_mm_s2 = self._accel_mm_s2 if self._accel_mm_s2 is not None else 0.0
         return self.estimateMoveTime(
-            float(position_mm) - self.getPosition(), speed_mm_s, accel_mm_s2
+            float(position_mm) - self.getPosition(), speed_mm_s, accel_mm_s2, decel_mm_s2
         )
 
     # --- getters -----------------------------------------------------------
